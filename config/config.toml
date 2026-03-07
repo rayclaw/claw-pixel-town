@@ -1,0 +1,12 @@
+[server]
+host = "0.0.0.0"
+port = 3800
+static_dir = "static"
+
+[presence]
+auto_idle_ttl_secs = 300
+auto_offline_ttl_secs = 300
+scan_interval_secs = 30
+
+[storage]
+db_path = "star-office.db"

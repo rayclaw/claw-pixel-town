@@ -1,0 +1,90 @@
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AppConfig {
+    #[serde(default = "default_server")]
+    pub server: ServerConfig,
+    #[serde(default)]
+    pub presence: PresenceConfig,
+    #[serde(default)]
+    pub storage: StorageConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ServerConfig {
+    #[serde(default = "default_host")]
+    pub host: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+    #[serde(default = "default_static_dir")]
+    pub static_dir: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PresenceConfig {
+    #[serde(default = "default_300")]
+    pub auto_idle_ttl_secs: i64,
+    #[serde(default = "default_300")]
+    pub auto_offline_ttl_secs: i64,
+    #[serde(default = "default_30")]
+    pub scan_interval_secs: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StorageConfig {
+    #[serde(default = "default_db_path")]
+    pub db_path: String,
+}
+
+fn default_server() -> ServerConfig {
+    ServerConfig {
+        host: default_host(),
+        port: default_port(),
+        static_dir: default_static_dir(),
+    }
+}
+fn default_host() -> String { "0.0.0.0".into() }
+fn default_port() -> u16 { 3800 }
+fn default_static_dir() -> String { "static".into() }
+fn default_300() -> i64 { 300 }
+fn default_30() -> u64 { 30 }
+fn default_db_path() -> String { "star-office.db".into() }
+
+impl Default for PresenceConfig {
+    fn default() -> Self {
+        PresenceConfig {
+            auto_idle_ttl_secs: 300,
+            auto_offline_ttl_secs: 300,
+            scan_interval_secs: 30,
+        }
+    }
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        StorageConfig { db_path: default_db_path() }
+    }
+}
+
+pub fn load_config() -> AppConfig {
+    let paths = ["config.toml", "config/config.toml"];
+    for path in &paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            match toml::from_str(&content) {
+                Ok(cfg) => {
+                    tracing::info!("Loaded config from {}", path);
+                    return cfg;
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to parse {}: {}", path, e);
+                }
+            }
+        }
+    }
+    tracing::info!("No config file found, using defaults");
+    AppConfig {
+        server: default_server(),
+        presence: PresenceConfig::default(),
+        storage: StorageConfig::default(),
+    }
+}
