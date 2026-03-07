@@ -26,5 +26,8 @@ dist-ssr
 # Privately licensed files
 */assets/*
 !*/assets/characters/
+!*/assets/characters-pokemon/
 !*/assets/default-layout.json
 !*/assets/walls.png
+!*/assets/maps/
+!*/assets/tilesets/
