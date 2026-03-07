@@ -69,6 +69,7 @@ export interface ApiPollingState {
 export function useApiPolling(
   getOfficeState: () => OfficeState,
   onLayoutLoaded?: (layout: OfficeLayout) => void,
+  assetsReady = false,
 ): ApiPollingState {
   const [agents, setAgents] = useState<number[]>([])
   const [agentInfos, setAgentInfos] = useState<AgentInfo[]>([])
@@ -85,7 +86,12 @@ export function useApiPolling(
     setLayoutReady(true)
   }, [getOfficeState, onLayoutLoaded])
 
+  // Wait for assets to be ready before loading layout
   useEffect(() => {
+    if (!assetsReady) return
+    if (layoutReadyRef.current) return
+
+    // Assets are always served from /static/assets
     fetch('/static/assets/default-layout.json')
       .then((r) => r.ok ? r.json() : null)
       .then((layout: OfficeLayout | null) => {
@@ -102,7 +108,7 @@ export function useApiPolling(
       .catch(() => {
         initLayout()
       })
-  }, [getOfficeState, onLayoutLoaded, initLayout])
+  }, [assetsReady, getOfficeState, onLayoutLoaded, initLayout])
 
   useEffect(() => {
     if (!layoutReadyRef.current) return
@@ -154,8 +160,8 @@ export function useApiPolling(
           if (ch) {
             ch.folderName = agent.name
             // Store detail in a custom field for the overlay
-            ;(ch as Record<string, unknown>)['agentDetail'] = agent.detail
-            ;(ch as Record<string, unknown>)['agentState'] = agent.state
+            ch.agentDetail = agent.detail
+            ch.agentState = agent.state
           }
 
           const prevState = prevStates.get(agent.agentId)

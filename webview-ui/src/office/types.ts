@@ -195,4 +195,8 @@ export interface Character {
   matrixEffectSeeds: number[]
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string
+  /** Agent state from API (idle, writing, researching, executing, syncing, error) */
+  agentState?: string
+  /** Agent detail/status message from API */
+  agentDetail?: string
 }

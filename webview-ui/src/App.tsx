@@ -1,242 +1,343 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { TownState } from './town/TownState'
-import { TownCanvas } from './town/TownCanvas'
-import { TILE_SIZE } from './town/types'
-import { useTownPolling } from './hooks/useTownPolling'
-import { AgentPanel } from './components/AgentPanel'
+import { OfficeState } from './office/engine/officeState.js'
+import { OfficeCanvas } from './office/components/OfficeCanvas.js'
+import { ToolOverlay } from './office/components/ToolOverlay.js'
+import { EditorToolbar } from './office/editor/EditorToolbar.js'
+import { EditorState } from './office/editor/editorState.js'
+import { EditTool } from './office/types.js'
+import { isRotatable, buildDynamicCatalog } from './office/layout/furnitureCatalog.js'
+import type { LoadedAssetData } from './office/layout/furnitureCatalog.js'
+import { loadFurnitureAssets } from './office/layout/assetLoader.js'
+import { useApiPolling } from './hooks/useApiPolling.js'
+import { PULSE_ANIMATION_DURATION_SEC } from './constants.js'
+import { useEditorActions } from './hooks/useEditorActions.js'
+import { useEditorKeyboard } from './hooks/useEditorKeyboard.js'
+import { ZoomControls } from './components/ZoomControls.js'
+import { BottomToolbar } from './components/BottomToolbar.js'
+import { DebugView } from './components/DebugView.js'
+import { AgentPanel } from './components/AgentPanel.js'
+import { AgentNameLabels } from './components/AgentNameLabels.js'
 
-// Town state lives outside React
-const townState = new TownState()
+// Game state lives outside React — updated imperatively by message handlers
+const officeStateRef = { current: null as OfficeState | null }
+const editorState = new EditorState()
+
+function getOfficeState(): OfficeState {
+  if (!officeStateRef.current) {
+    officeStateRef.current = new OfficeState()
+  }
+  return officeStateRef.current
+}
+
+const actionBarBtnStyle: React.CSSProperties = {
+  padding: '4px 10px',
+  fontSize: '22px',
+  background: 'var(--pixel-btn-bg)',
+  color: 'var(--pixel-text-dim)',
+  border: '2px solid transparent',
+  borderRadius: 0,
+  cursor: 'pointer',
+}
+
+const actionBarBtnDisabled: React.CSSProperties = {
+  ...actionBarBtnStyle,
+  opacity: 'var(--pixel-btn-disabled-opacity)',
+  cursor: 'default',
+}
+
+function EditActionBar({ editor, editorState: es }: { editor: ReturnType<typeof useEditorActions>; editorState: EditorState }) {
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+
+  const undoDisabled = es.undoStack.length === 0
+  const redoDisabled = es.redoStack.length === 0
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 8,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 'var(--pixel-controls-z)',
+        display: 'flex',
+        gap: 4,
+        alignItems: 'center',
+        background: 'var(--pixel-bg)',
+        border: '2px solid var(--pixel-border)',
+        borderRadius: 0,
+        padding: '4px 8px',
+        boxShadow: 'var(--pixel-shadow)',
+      }}
+    >
+      <button
+        style={undoDisabled ? actionBarBtnDisabled : actionBarBtnStyle}
+        onClick={undoDisabled ? undefined : editor.handleUndo}
+        title="Undo (Ctrl+Z)"
+      >
+        Undo
+      </button>
+      <button
+        style={redoDisabled ? actionBarBtnDisabled : actionBarBtnStyle}
+        onClick={redoDisabled ? undefined : editor.handleRedo}
+        title="Redo (Ctrl+Y)"
+      >
+        Redo
+      </button>
+      <button
+        style={actionBarBtnStyle}
+        onClick={editor.handleSave}
+        title="Save layout"
+      >
+        Save
+      </button>
+      {!showResetConfirm ? (
+        <button
+          style={actionBarBtnStyle}
+          onClick={() => setShowResetConfirm(true)}
+          title="Reset to last saved layout"
+        >
+          Reset
+        </button>
+      ) : (
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <span style={{ fontSize: '22px', color: 'var(--pixel-reset-text)' }}>Reset?</span>
+          <button
+            style={{ ...actionBarBtnStyle, background: 'var(--pixel-danger-bg)', color: '#fff' }}
+            onClick={() => { setShowResetConfirm(false); editor.handleReset() }}
+          >
+            Yes
+          </button>
+          <button
+            style={actionBarBtnStyle}
+            onClick={() => setShowResetConfirm(false)}
+          >
+            No
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function App() {
-  const [zoom, setZoom] = useState(1.5)
-  const panRef = useRef({ x: 0, y: 0 })
-  const [ready, setReady] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const editor = useEditorActions(getOfficeState, editorState)
 
-  // Load map on mount
+  const [isDebugMode, setIsDebugMode] = useState(false)
+  const [loadedAssets, setLoadedAssets] = useState<LoadedAssetData | undefined>(undefined)
+
+  // Load furniture assets on mount
   useEffect(() => {
-    const base = import.meta.env.BASE_URL || '/static/'
-    const mapUrl = `${base}assets/maps/agent-town.json`
-    const assetBase = `${base}assets`
-    townState.loadMap(mapUrl, assetBase).then(() => {
-      setReady(true)
+    // Assets are always served from /static/assets (both vite dev and cargo run)
+    loadFurnitureAssets('/static/assets').then((assets) => {
+      if (assets) {
+        console.log(`Loaded ${assets.catalog.length} furniture assets`)
+        buildDynamicCatalog(assets)
+        setLoadedAssets(assets)
+      }
     })
   }, [])
 
-  const { agents, agentInfos } = useTownPolling(townState, ready)
+  const assetsReady = loadedAssets !== undefined
+  const { agents, agentInfos, layoutReady } = useApiPolling(getOfficeState, editor.setLastSavedLayout, assetsReady)
 
-  const handleZoomChange = useCallback((z: number) => {
-    setZoom(Math.max(0.3, Math.min(4, z)))
+  const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), [])
+
+  const handleSelectAgent = useCallback((numericId: number) => {
+    const os = getOfficeState()
+    os.selectedAgentId = numericId
+    os.cameraFollowId = numericId
+  }, [])
+
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const [editorTickForKeyboard, setEditorTickForKeyboard] = useState(0)
+  useEditorKeyboard(
+    editor.isEditMode,
+    editorState,
+    editor.handleDeleteSelected,
+    editor.handleRotateSelected,
+    editor.handleToggleState,
+    editor.handleUndo,
+    editor.handleRedo,
+    useCallback(() => setEditorTickForKeyboard((n) => n + 1), []),
+    editor.handleToggleEditMode,
+  )
+
+  const handleCloseAgent = useCallback((_id: number) => {
+    // No terminal to close in standalone mode
   }, [])
 
   const handleClick = useCallback((agentId: number) => {
-    townState.selectedAgentId = agentId
-    townState.cameraFollowId = agentId
+    const os = getOfficeState()
+    os.selectedAgentId = agentId
+    os.cameraFollowId = agentId
   }, [])
 
-  const handleSelectAgent = useCallback((numericId: number) => {
-    townState.selectedAgentId = numericId
-    townState.cameraFollowId = numericId
-  }, [])
+  const officeState = getOfficeState()
 
-  if (!ready) {
+  // Force dependency on editorTickForKeyboard to propagate keyboard-triggered re-renders
+  void editorTickForKeyboard
+
+  // Show "Press R to rotate" hint when a rotatable item is selected or being placed
+  const showRotateHint = editor.isEditMode && (() => {
+    if (editorState.selectedFurnitureUid) {
+      const item = officeState.getLayout().furniture.find((f) => f.uid === editorState.selectedFurnitureUid)
+      if (item && isRotatable(item.type)) return true
+    }
+    if (editorState.activeTool === EditTool.FURNITURE_PLACE && isRotatable(editorState.selectedFurnitureType)) {
+      return true
+    }
+    return false
+  })()
+
+  if (!layoutReady) {
     return (
-      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa', background: '#1a1a2e' }}>
-        Loading Agent Town...
+      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa' }}>
+        Loading...
       </div>
     )
   }
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-      <TownCanvas
-        townState={townState}
-        zoom={zoom}
-        onZoomChange={handleZoomChange}
-        panRef={panRef}
+      <style>{`
+        @keyframes pixel-agents-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+        .pixel-agents-pulse { animation: pixel-agents-pulse ${PULSE_ANIMATION_DURATION_SEC}s ease-in-out infinite; }
+      `}</style>
+
+      <OfficeCanvas
+        officeState={officeState}
         onClick={handleClick}
+        isEditMode={editor.isEditMode}
+        editorState={editorState}
+        onEditorTileAction={editor.handleEditorTileAction}
+        onEditorEraseAction={editor.handleEditorEraseAction}
+        onEditorSelectionChange={editor.handleEditorSelectionChange}
+        onDeleteSelected={editor.handleDeleteSelected}
+        onRotateSelected={editor.handleRotateSelected}
+        onDragMove={editor.handleDragMove}
+        editorTick={editor.editorTick}
+        zoom={editor.zoom}
+        onZoomChange={editor.handleZoomChange}
+        panRef={editor.panRef}
       />
+
+      <ZoomControls zoom={editor.zoom} onZoomChange={editor.handleZoomChange} />
 
       {/* Vignette overlay */}
       <div
         style={{
           position: 'absolute',
           inset: 0,
-          background: 'radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.4) 100%)',
+          background: 'var(--pixel-vignette)',
           pointerEvents: 'none',
           zIndex: 40,
         }}
       />
 
-      {/* Agent name labels */}
+      <BottomToolbar
+        isEditMode={editor.isEditMode}
+        onOpenClaude={editor.handleOpenClaude}
+        onToggleEditMode={editor.handleToggleEditMode}
+        isDebugMode={isDebugMode}
+        onToggleDebugMode={handleToggleDebugMode}
+        workspaceFolders={[]}
+      />
+
+      {editor.isEditMode && editor.isDirty && (
+        <EditActionBar editor={editor} editorState={editorState} />
+      )}
+
+      {showRotateHint && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: '50%',
+            transform: editor.isDirty ? 'translateX(calc(-50% + 100px))' : 'translateX(-50%)',
+            zIndex: 49,
+            background: 'var(--pixel-hint-bg)',
+            color: '#fff',
+            fontSize: '20px',
+            padding: '3px 8px',
+            borderRadius: 0,
+            border: '2px solid var(--pixel-accent)',
+            boxShadow: 'var(--pixel-shadow)',
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Press <b>R</b> to rotate
+        </div>
+      )}
+
+      {editor.isEditMode && (() => {
+        // Compute selected furniture color from current layout
+        const selUid = editorState.selectedFurnitureUid
+        const selColor = selUid
+          ? officeState.getLayout().furniture.find((f) => f.uid === selUid)?.color ?? null
+          : null
+        return (
+          <EditorToolbar
+            activeTool={editorState.activeTool}
+            selectedTileType={editorState.selectedTileType}
+            selectedFurnitureType={editorState.selectedFurnitureType}
+            selectedFurnitureUid={selUid}
+            selectedFurnitureColor={selColor}
+            floorColor={editorState.floorColor}
+            wallColor={editorState.wallColor}
+            onToolChange={editor.handleToolChange}
+            onTileTypeChange={editor.handleTileTypeChange}
+            onFloorColorChange={editor.handleFloorColorChange}
+            onWallColorChange={editor.handleWallColorChange}
+            onSelectedFurnitureColorChange={editor.handleSelectedFurnitureColorChange}
+            onFurnitureTypeChange={editor.handleFurnitureTypeChange}
+            loadedAssets={loadedAssets}
+          />
+        )
+      })()}
+
+      {/* Agent name labels above characters */}
       <AgentNameLabels
-        townState={townState}
+        officeState={officeState}
         agents={agents}
         containerRef={containerRef}
-        zoom={zoom}
-        panRef={panRef}
+        zoom={editor.zoom}
+        panRef={editor.panRef}
       />
 
       {/* Agent status panel */}
       <AgentPanel
         agentInfos={agentInfos}
         onSelectAgent={handleSelectAgent}
-        selectedAgentId={townState.selectedAgentId}
+        selectedAgentId={officeState.selectedAgentId}
       />
 
-      {/* Zoom controls */}
-      <div style={{
-        position: 'absolute',
-        bottom: 16,
-        right: 16,
-        zIndex: 50,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-      }}>
-        <button onClick={() => handleZoomChange(zoom + 0.2)} style={zoomBtnStyle}>+</button>
-        <button onClick={() => handleZoomChange(1.5)} style={zoomBtnStyle}>
-          {Math.round(zoom * 100)}%
-        </button>
-        <button onClick={() => handleZoomChange(zoom - 0.2)} style={zoomBtnStyle}>-</button>
-      </div>
+      <ToolOverlay
+        officeState={officeState}
+        agents={agents}
+        agentTools={{}}
+        subagentCharacters={[]}
+        containerRef={containerRef}
+        zoom={editor.zoom}
+        panRef={editor.panRef}
+        onCloseAgent={handleCloseAgent}
+      />
+
+      {isDebugMode && (
+        <DebugView
+          agents={agents}
+          selectedAgent={null}
+          agentTools={{}}
+          agentStatuses={{}}
+          subagentTools={{}}
+          onSelectAgent={handleSelectAgent}
+        />
+      )}
     </div>
-  )
-}
-
-const zoomBtnStyle: React.CSSProperties = {
-  width: 40,
-  height: 32,
-  background: 'rgba(10, 10, 20, 0.85)',
-  color: '#e5e7eb',
-  border: '2px solid #2a2a3e',
-  borderRadius: 0,
-  cursor: 'pointer',
-  fontSize: '14px',
-  fontFamily: 'monospace',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-}
-
-const STATE_COLORS: Record<string, string> = {
-  idle: '#6b7280',
-  writing: '#22c55e',
-  researching: '#3b82f6',
-  executing: '#eab308',
-  syncing: '#a855f7',
-  error: '#ef4444',
-}
-
-const STATE_SHORT: Record<string, string> = {
-  idle: '',
-  writing: 'WRITE',
-  researching: 'SEARCH',
-  executing: 'EXEC',
-  syncing: 'SYNC',
-  error: 'ERR',
-}
-
-const LABEL_OFFSET_PX = 52 // Above character head (characters are ~96px tall at tile scale)
-
-function AgentNameLabels({
-  townState,
-  agents,
-  containerRef,
-  zoom,
-  panRef,
-}: {
-  townState: TownState
-  agents: number[]
-  containerRef: React.RefObject<HTMLDivElement | null>
-  zoom: number
-  panRef: React.RefObject<{ x: number; y: number }>
-}) {
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    let rafId = 0
-    const tick = () => {
-      setTick((n) => n + 1)
-      rafId = requestAnimationFrame(tick)
-    }
-    rafId = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafId)
-  }, [])
-
-  const el = containerRef.current
-  if (!el || !townState.map) return null
-  const rect = el.getBoundingClientRect()
-  const dpr = window.devicePixelRatio || 1
-  const canvasW = Math.round(rect.width * dpr)
-  const canvasH = Math.round(rect.height * dpr)
-  const mapW = townState.map.width * TILE_SIZE * zoom * dpr
-  const mapH = townState.map.height * TILE_SIZE * zoom * dpr
-  const deviceOffsetX = Math.floor((canvasW - mapW) / 2) + Math.round(panRef.current.x)
-  const deviceOffsetY = Math.floor((canvasH - mapH) / 2) + Math.round(panRef.current.y)
-
-  return (
-    <>
-      {agents.map((id) => {
-        const ch = townState.characters.get(id)
-        if (!ch) return null
-
-        const name = ch.folderName || `Agent ${id}`
-        const agentState = ch.agentState || 'idle'
-        const stateColor = STATE_COLORS[agentState] || '#6b7280'
-        const stateShort = STATE_SHORT[agentState] || ''
-
-        // Position label above character head
-        const screenX = (deviceOffsetX + ch.x * zoom * dpr) / dpr
-        const screenY = (deviceOffsetY + (ch.y - LABEL_OFFSET_PX) * zoom * dpr) / dpr
-
-        return (
-          <div
-            key={id}
-            style={{
-              position: 'absolute',
-              left: screenX,
-              top: screenY,
-              transform: 'translate(-50%, -100%)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              pointerEvents: 'none',
-              zIndex: 30,
-              gap: 1,
-            }}
-          >
-            {stateShort && (
-              <div style={{
-                fontSize: '9px',
-                fontFamily: 'monospace',
-                fontWeight: 700,
-                color: '#fff',
-                background: stateColor,
-                padding: '0px 4px',
-                letterSpacing: '0.05em',
-                lineHeight: '14px',
-              }}>
-                {stateShort}
-              </div>
-            )}
-            <div style={{
-              fontSize: '10px',
-              fontFamily: 'monospace',
-              fontWeight: 600,
-              color: '#e5e7eb',
-              background: 'rgba(10, 10, 20, 0.8)',
-              padding: '1px 4px',
-              whiteSpace: 'nowrap',
-              lineHeight: '14px',
-              borderBottom: `2px solid ${stateColor}`,
-            }}>
-              {name}
-            </div>
-          </div>
-        )
-      })}
-    </>
   )
 }
 

@@ -70,7 +70,7 @@ export function AgentNameLabels({
         if (ch.matrixEffect === 'despawn') return null
 
         const name = ch.folderName || `Agent ${id}`
-        const agentState = ((ch as Record<string, unknown>)['agentState'] as string) || 'idle'
+        const agentState = ch.agentState || 'idle'
         const stateColor = STATE_COLORS[agentState] || '#6b7280'
         const stateShort = STATE_SHORT[agentState] || ''
 
