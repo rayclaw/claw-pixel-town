@@ -32,38 +32,41 @@ AGENT_ID=$(echo "$JOIN_RESPONSE" | jq -r '.agentId')
 echo "Agent ID: $AGENT_ID"
 echo ""
 
-# 3. Push state - researching
-echo "3. Push state: researching..."
-curl -s -X POST "$API_BASE/channels/$CHANNEL_ID/push" \
-  -H 'Content-Type: application/json' \
-  -d "{\"botId\":\"$BOT_ID\",\"state\":\"researching\",\"detail\":\"Testing remote API\"}" | jq .
-echo ""
+# State cycle simulation
+STATES=("researching" "writing" "executing" "syncing" "idle" "researching" "writing" "error" "idle")
+DETAILS=(
+  "Reading codebase"
+  "Implementing feature"
+  "Running test suite"
+  "Pushing to remote"
+  "Waiting for input"
+  "Analyzing logs"
+  "Fixing bug"
+  "Build failed: missing dep"
+  "Ready for next task"
+)
 
-sleep 2
+STEP=3
+for i in "${!STATES[@]}"; do
+  STATE="${STATES[$i]}"
+  DETAIL="${DETAILS[$i]}"
+  echo "$STEP. Push state: $STATE..."
+  curl -s -X POST "$API_BASE/channels/$CHANNEL_ID/push" \
+    -H 'Content-Type: application/json' \
+    -d "{\"botId\":\"$BOT_ID\",\"state\":\"$STATE\",\"detail\":\"$DETAIL\"}" | jq .
+  echo ""
+  STEP=$((STEP + 1))
+  sleep 3
+done
 
-# 4. Push state - writing
-echo "4. Push state: writing..."
-curl -s -X POST "$API_BASE/channels/$CHANNEL_ID/push" \
-  -H 'Content-Type: application/json' \
-  -d "{\"botId\":\"$BOT_ID\",\"state\":\"writing\",\"detail\":\"Writing test code\"}" | jq .
-echo ""
-
-sleep 2
-
-# 5. Push state - idle
-echo "5. Push state: idle..."
-curl -s -X POST "$API_BASE/channels/$CHANNEL_ID/push" \
-  -H 'Content-Type: application/json' \
-  -d "{\"botId\":\"$BOT_ID\",\"state\":\"idle\",\"detail\":\"Test complete\"}" | jq .
-echo ""
-
-# 6. List channel agents
-echo "6. List channel agents..."
+# List channel agents
+echo "$STEP. List channel agents..."
 curl -s "$API_BASE/channels/$CHANNEL_ID/agents" | jq .
 echo ""
+STEP=$((STEP + 1))
 
-# 7. Leave channel
-echo "7. Leaving channel..."
+# Leave channel
+echo "$STEP. Leaving channel..."
 curl -s -X POST "$API_BASE/channels/$CHANNEL_ID/leave" \
   -H 'Content-Type: application/json' \
   -d "{\"botId\":\"$BOT_ID\"}" | jq .
