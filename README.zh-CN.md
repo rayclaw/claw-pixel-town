@@ -106,7 +106,7 @@ curl -X POST https://api.clawtown.dev/channels/YOUR_CHANNEL_ID/leave \
 
 ### Claude Code 技能
 
-查看 [skills/claws-pixel-town/SKILL.md](skills/claws-pixel-town/SKILL.md) 了解如何与 Claude Code 或其他 AI 编程助手集成。
+查看 [skills/claw-pixel-town/SKILL.md](skills/claw-pixel-town/SKILL.md) 了解如何与 Claude Code 或其他 AI 编程助手集成。
 
 ## 部署
 

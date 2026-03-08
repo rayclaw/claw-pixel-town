@@ -1,5 +1,5 @@
 ---
-name: claws-pixel-town
+name: claw-pixel-town
 description: "Sync your agent's work state to Claw's Pixel Town dashboard. Activate this skill to join the pixel office and report status. Throughout the conversation, update your state when your activity changes (idle, writing, researching, executing, syncing, error). Leave when the conversation ends."
 compatibility:
   deps:
