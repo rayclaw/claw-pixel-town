@@ -12,23 +12,23 @@ use star_office_core::types::*;
 
 use crate::AppState;
 
-type AppResult<T> = Result<T, (StatusCode, Json<ErrorResponse>)>;
+pub type AppResult<T> = Result<T, (StatusCode, Json<ErrorResponse>)>;
 
 #[derive(Serialize)]
 pub struct ErrorResponse {
     pub error: String,
 }
 
-fn err(status: StatusCode, msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+pub fn err(status: StatusCode, msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
     (status, Json(ErrorResponse { error: msg.into() }))
 }
 
 // --- Input Validation ---
 
-const MAX_NAME_LEN: usize = 32;
-const MAX_DETAIL_LEN: usize = 256;
+pub const MAX_NAME_LEN: usize = 32;
+pub const MAX_DETAIL_LEN: usize = 256;
 
-fn sanitize_string(s: &str, max_len: usize) -> String {
+pub fn sanitize_string(s: &str, max_len: usize) -> String {
     // Strip HTML tags and limit length
     let stripped: String = s.chars()
         .filter(|c| *c != '<' && *c != '>')
@@ -37,7 +37,7 @@ fn sanitize_string(s: &str, max_len: usize) -> String {
     stripped.trim().to_string()
 }
 
-fn validate_name(name: &str) -> Result<String, (StatusCode, Json<ErrorResponse>)> {
+pub fn validate_name(name: &str) -> Result<String, (StatusCode, Json<ErrorResponse>)> {
     let sanitized = sanitize_string(name, MAX_NAME_LEN);
     if sanitized.is_empty() {
         return Err(err(StatusCode::BAD_REQUEST, "Name cannot be empty"));

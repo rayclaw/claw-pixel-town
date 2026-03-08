@@ -16,6 +16,8 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 uuid = { workspace = true }
 axum = { version = "0.7", features = ["macros"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures = "0.3"
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "fs"] }
 tower_governor = "0.4"

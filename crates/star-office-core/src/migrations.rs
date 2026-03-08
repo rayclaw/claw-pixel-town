@@ -5,6 +5,7 @@ use std::fs;
 /// Embedded migrations (compiled into binary)
 const MIGRATIONS: &[(&str, &str)] = &[
     ("001_init", include_str!("../../../migrations/001_init.sql")),
+    ("002_channels", include_str!("../../../migrations/002_channels.sql")),
 ];
 
 /// Error type for migration operations

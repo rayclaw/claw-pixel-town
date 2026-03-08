@@ -1,6 +1,8 @@
 mod config;
 mod routes;
+mod channel_routes;
 mod background;
+mod events;
 
 use std::sync::Arc;
 use std::net::SocketAddr;
@@ -15,6 +17,7 @@ use star_office_core::db::Database;
 pub struct AppState {
     pub db: Database,
     pub config: config::AppConfig,
+    pub events: events::EventHub,
 }
 
 #[tokio::main]
@@ -32,7 +35,8 @@ async fn main() {
     let db = Database::new(&cfg.storage.db_path).expect("Failed to open database");
     db.ensure_main_agent("Star").expect("Failed to ensure main agent");
 
-    let state = Arc::new(AppState { db, config: cfg.clone() });
+    let event_hub = events::EventHub::new();
+    let state = Arc::new(AppState { db, config: cfg.clone(), events: event_hub });
 
     // Spawn background presence task
     background::spawn_presence_task(state.clone());
@@ -58,6 +62,9 @@ async fn main() {
     let static_dir = cfg.server.static_dir.clone();
     let app = Router::new()
         .merge(routes::api_routes())
+        .merge(channel_routes::channel_routes())
+        .merge(channel_routes::bot_routes())
+        .merge(channel_routes::user_routes())
         .nest_service("/static", ServeDir::new(&cfg.server.static_dir))
         .route("/", get(move || {
             let dir = static_dir.clone();

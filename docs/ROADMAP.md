@@ -119,11 +119,11 @@ join_keys (保留，兼容 v1 Bot 接入)
 
 ---
 
-## Phase 1 — Multi-Channel Core 🏢
-> 目标: 支持创建/加入多个房间，每个房间独立布局和成员  
-> 预计: 3-5 天
+## Phase 1 — Multi-Channel Core 🏢 ✅
+> 目标: 支持创建/加入多个房间，每个房间独立布局和成员
+> 完成: 2026-03-08
 
-### 1.1 Channel CRUD
+### 1.1 Channel CRUD ✅
 ```
 POST   /channels              — 创建 Channel（需 user token）
 GET    /channels               — 列出公开 Channel（大厅列表）
@@ -142,7 +142,7 @@ DELETE /channels/{id}          — 删除 Channel（仅 owner）
 }
 ```
 
-### 1.2 Channel Join/Leave
+### 1.2 Channel Join/Leave ✅
 ```
 POST /channels/{id}/join      — 加入 Channel（需 joinKey if 设了密码）
 POST /channels/{id}/leave     — 离开 Channel
@@ -152,7 +152,7 @@ GET  /channels/{id}/agents    — 该 Channel 的在线 agent 列表
 
 **兼容 v1:** 保留 `/join`, `/push`, `/leave` 端点，内部路由到默认 Channel。
 
-### 1.3 Bot 注册与 Channel 加入
+### 1.3 Bot 注册与 Channel 加入 ✅
 > 解决: 同一 Join Key 被反复 /join 刷出幽灵 agent 的问题
 
 **Bot 管理 API (平台级):**
@@ -221,13 +221,13 @@ POST /channels/{id}/join
 
 **向下兼容:** 请求中没有 `botId` 字段时走 v1 老逻辑（仅 joinKey 认证，默认 Channel）。
 
-### 1.4 Channel Layout 持久化
-- [ ] `POST /channels/{id}/layout` — 保存房间布局（Owner only）
-- [ ] `GET /channels/{id}/layout` — 获取房间布局
-- [ ] Layout 存为 JSON blob in SQLite（单字段，避免关系化家具表的复杂度）
-- [ ] Layout 版本号，支持 undo/rollback（保留最近 5 个版本）
+### 1.4 Channel Layout 持久化 ✅
+- [x] `POST /channels/{id}/layout` — 保存房间布局（Owner only）
+- [x] `GET /channels/{id}/layout` — 获取房间布局
+- [x] Layout 存为 JSON blob in SQLite（单字段，避免关系化家具表的复杂度）
+- [ ] Layout 版本号，支持 undo/rollback（保留最近 5 个版本）— 后续优化
 
-### 1.5 User Identity (Lightweight)
+### 1.5 User Identity (Lightweight) ✅
 > 不做完整注册系统，保持轻量
 
 **方案 A — Token-based (推荐):**
@@ -244,24 +244,24 @@ POST /channels/{id}/join
 
 两套认证并存：浏览器用户走 Token，Bot 走 botId + joinKey。
 
-### 1.6 SSE Real-time Push
+### 1.6 SSE Real-time Push ✅
 ```
 GET /channels/{id}/events     — SSE stream
 ```
 **事件类型:**
 ```
 event: agent_join
-event: agent_leave  
+event: agent_leave
 event: agent_state
 event: layout_update
 event: channel_update
 ```
 
 实现:
-- [ ] `tokio::sync::broadcast` channel per room（懒创建，无人时 drop）
-- [ ] 前端 `EventSource` 替代 `setInterval` polling
-- [ ] SSE 自动重连（浏览器原生支持）
-- [ ] 心跳: 每 30s 发 `:keepalive\n\n` 防超时
+- [x] `tokio::sync::broadcast` channel per room（懒创建，无人时 drop）
+- [ ] 前端 `EventSource` 替代 `setInterval` polling — Phase 2
+- [x] SSE 自动重连（浏览器原生支持）
+- [x] 心跳: 每 30s 发 `:keepalive\n\n` 防超时
 
 ---
 
