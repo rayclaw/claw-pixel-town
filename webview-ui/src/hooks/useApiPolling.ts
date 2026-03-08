@@ -80,6 +80,29 @@ export function useApiPolling(
   const layoutReadyRef = useRef(false)
   const agentMapRef = useRef<Map<string, number>>(new Map())
   const prevStateRef = useRef<Map<string, string>>(new Map())
+  const prevChannelIdRef = useRef<string | undefined>(undefined)
+
+  // Clear all characters when channelId changes (or on initial mount) to prevent duplicates
+  useEffect(() => {
+    const os = getOfficeState()
+    // Always clear on mount or channel change to prevent stale characters
+    if (prevChannelIdRef.current !== channelId) {
+      // Remove all existing characters
+      for (const id of os.characters.keys()) {
+        os.characters.delete(id)
+      }
+      // Reset seats
+      for (const seat of os.seats.values()) {
+        seat.assigned = false
+      }
+      // Clear local tracking maps
+      agentMapRef.current.clear()
+      prevStateRef.current.clear()
+      setAgents([])
+      setAgentInfos([])
+      prevChannelIdRef.current = channelId
+    }
+  }, [channelId, getOfficeState])
 
   const initLayout = useCallback(() => {
     if (layoutReadyRef.current) return
