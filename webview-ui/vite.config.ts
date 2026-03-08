@@ -18,6 +18,10 @@ export default defineConfig({
       '/leave': 'http://localhost:3800',
       '/broadcast': 'http://localhost:3800',
       '/set_state': 'http://localhost:3800',
+      '/channels': 'http://localhost:3800',
+      '/bots': 'http://localhost:3800',
+      '/user': 'http://localhost:3800',
+      '/lobby': 'http://localhost:3800',
     },
   },
 })

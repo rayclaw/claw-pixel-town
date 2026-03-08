@@ -17,6 +17,33 @@ import { BottomToolbar } from './components/BottomToolbar.js'
 import { DebugView } from './components/DebugView.js'
 import { AgentPanel } from './components/AgentPanel.js'
 import { AgentNameLabels } from './components/AgentNameLabels.js'
+import { LobbyView } from './lobby/index.js'
+
+/** Simple hash-based router */
+function useHashRoute(): { view: 'lobby' | 'channel'; channelId: string | null } {
+  const [route, setRoute] = useState(() => parseHash(window.location.hash))
+
+  useEffect(() => {
+    const handler = () => setRoute(parseHash(window.location.hash))
+    window.addEventListener('hashchange', handler)
+    return () => window.removeEventListener('hashchange', handler)
+  }, [])
+
+  return route
+}
+
+function parseHash(hash: string): { view: 'lobby' | 'channel'; channelId: string | null } {
+  const path = hash.replace(/^#\/?/, '')
+  if (path.startsWith('channel/')) {
+    const channelId = path.slice(8)
+    return { view: 'channel', channelId: channelId || null }
+  }
+  return { view: 'lobby', channelId: null }
+}
+
+function navigateTo(path: string) {
+  window.location.hash = path
+}
 
 // Game state lives outside React — updated imperatively by message handlers
 const officeStateRef = { current: null as OfficeState | null }
@@ -119,7 +146,7 @@ function EditActionBar({ editor, editorState: es }: { editor: ReturnType<typeof 
   )
 }
 
-function App() {
+function OfficeView() {
   const editor = useEditorActions(getOfficeState, editorState)
 
   const [isDebugMode, setIsDebugMode] = useState(false)
@@ -337,6 +364,51 @@ function App() {
           onSelectAgent={handleSelectAgent}
         />
       )}
+    </div>
+  )
+}
+
+function App() {
+  const route = useHashRoute()
+
+  const handleEnterChannel = useCallback((channelId: string, _joinKey?: string) => {
+    // TODO: Store joinKey for later use in channel join API
+    navigateTo(`/channel/${channelId}`)
+  }, [])
+
+  const handleBackToLobby = useCallback(() => {
+    navigateTo('/lobby')
+  }, [])
+
+  // Redirect to lobby if no valid channel ID
+  if (route.view === 'lobby' || !route.channelId) {
+    return <LobbyView onEnterChannel={handleEnterChannel} />
+  }
+
+  // Channel view - for now just show OfficeView
+  // TODO: Load channel-specific layout when channelId is available
+  return (
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+      {/* Back to lobby button - top right to avoid overlap with zoom controls */}
+      <button
+        onClick={handleBackToLobby}
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          zIndex: 100,
+          padding: '6px 12px',
+          fontSize: '14px',
+          background: 'var(--pixel-btn-bg, #3a3a4a)',
+          color: 'var(--pixel-text, #e0e0e0)',
+          border: '2px solid var(--pixel-border, #4a4a5a)',
+          borderRadius: 0,
+          cursor: 'pointer',
+        }}
+      >
+        Back to Lobby
+      </button>
+      <OfficeView />
     </div>
   )
 }

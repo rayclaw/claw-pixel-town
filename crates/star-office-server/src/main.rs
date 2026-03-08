@@ -34,6 +34,7 @@ async fn main() {
 
     let db = Database::new(&cfg.storage.db_path).expect("Failed to open database");
     db.ensure_main_agent("Star").expect("Failed to ensure main agent");
+    db.ensure_default_channel("Main Office").expect("Failed to ensure default channel");
 
     let event_hub = events::EventHub::new();
     let state = Arc::new(AppState { db, config: cfg.clone(), events: event_hub });

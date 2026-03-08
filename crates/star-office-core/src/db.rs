@@ -519,6 +519,35 @@ impl Database {
         Ok(())
     }
 
+    /// Ensure a default public channel exists
+    pub fn ensure_default_channel(&self, name: &str) -> Result<String, DbError> {
+        let conn = self.conn.lock()?;
+
+        // Check if default channel already exists
+        let existing: Option<String> = conn.query_row(
+            "SELECT channel_id FROM channels WHERE is_default = 1",
+            [],
+            |row| row.get(0),
+        ).ok();
+
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+
+        // Create default channel
+        let channel_id = format!("ch_{}", uuid::Uuid::new_v4().to_string().replace("-", "")[..12].to_string());
+        let now = chrono::Utc::now().to_rfc3339();
+
+        conn.execute(
+            "INSERT INTO channels (channel_id, name, owner_user_id, type, join_key, whitelist, max_members, layout, is_public, is_default, created_at)
+             VALUES (?1, ?2, NULL, 'public', NULL, '[]', 50, '{}', 1, 1, ?3)",
+            params![channel_id, name, now],
+        )?;
+
+        tracing::info!("Created default channel: {} ({})", name, channel_id);
+        Ok(channel_id)
+    }
+
     pub fn get_channel(&self, channel_id: &str) -> Result<Option<Channel>, DbError> {
         let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
