@@ -151,7 +151,7 @@ function EditActionBar({ editor, editorState: es }: { editor: ReturnType<typeof 
   )
 }
 
-function OfficeView() {
+function OfficeView({ channelId }: { channelId?: string }) {
   const editor = useEditorActions(getOfficeState, editorState)
 
   const [isDebugMode, setIsDebugMode] = useState(false)
@@ -159,18 +159,21 @@ function OfficeView() {
 
   // Load furniture assets on mount
   useEffect(() => {
-    // Assets are always served from /static/assets (both vite dev and cargo run)
-    loadFurnitureAssets('/static/assets').then((assets) => {
-      if (assets) {
-        console.log(`Loaded ${assets.catalog.length} furniture assets`)
-        buildDynamicCatalog(assets)
-        setLoadedAssets(assets)
-      }
-    })
+    // Try /assets first (Cloudflare), then /static/assets (local Rust server)
+    const tryLoad = (path: string) => loadFurnitureAssets(path)
+    tryLoad('/assets')
+      .then(assets => assets || tryLoad('/static/assets'))
+      .then((assets) => {
+        if (assets) {
+          console.log(`Loaded ${assets.catalog.length} furniture assets`)
+          buildDynamicCatalog(assets)
+          setLoadedAssets(assets)
+        }
+      })
   }, [])
 
   const assetsReady = loadedAssets !== undefined
-  const { agents, agentInfos, layoutReady } = useApiPolling(getOfficeState, editor.setLastSavedLayout, assetsReady)
+  const { agents, agentInfos, layoutReady } = useApiPolling(getOfficeState, editor.setLastSavedLayout, assetsReady, channelId)
 
   const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), [])
 
@@ -481,7 +484,7 @@ function ChannelView({
         </button>
       </div>
 
-      <OfficeView />
+      <OfficeView channelId={channelId} />
 
       {/* Settings Modal */}
       {showSettings && channel && (

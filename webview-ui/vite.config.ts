@@ -1,13 +1,14 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   build: {
     outDir: '../static',
     emptyOutDir: false,
   },
-  base: '/static/',
+  // Use '/' for Cloudflare Pages, '/static/' for Rust server
+  base: process.env.VITE_BASE_PATH || (mode === 'cloudflare' ? '/' : '/static/'),
   server: {
     proxy: {
       '/agents': 'http://localhost:3800',
@@ -25,4 +26,4 @@ export default defineConfig({
       '/auth': 'http://localhost:3800',
     },
   },
-})
+}))

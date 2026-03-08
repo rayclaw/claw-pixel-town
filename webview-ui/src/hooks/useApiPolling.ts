@@ -2,20 +2,22 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import type { OfficeState } from '../office/engine/officeState.js'
 import type { OfficeLayout } from '../office/types.js'
 
-const API_BASE = '' // same origin
+// In production, set VITE_API_URL=https://api.clawtown.dev
+const API_BASE = import.meta.env.VITE_API_URL || ''
 const POLL_INTERVAL_MS = 2000
 
 /** Agent record from the REST API */
 export interface ApiAgent {
   agentId: string
   name: string
-  isMain: boolean
+  isMain?: boolean  // Only in legacy /agents API
   state: string // idle, writing, researching, executing, syncing, error
   detail: string
   area: string
-  framework: string
+  framework?: string  // Only in legacy /agents API
   online: boolean
   avatar: string
+  botId?: string  // Only in channel /agents API
 }
 
 /** Map our agent states to pixel-agents tool names for animation */
@@ -70,6 +72,7 @@ export function useApiPolling(
   getOfficeState: () => OfficeState,
   onLayoutLoaded?: (layout: OfficeLayout) => void,
   assetsReady = false,
+  channelId?: string,
 ): ApiPollingState {
   const [agents, setAgents] = useState<number[]>([])
   const [agentInfos, setAgentInfos] = useState<AgentInfo[]>([])
@@ -91,9 +94,10 @@ export function useApiPolling(
     if (!assetsReady) return
     if (layoutReadyRef.current) return
 
-    // Assets are always served from /static/assets
-    fetch('/static/assets/default-layout.json')
-      .then((r) => r.ok ? r.json() : null)
+    // Try /assets first (Cloudflare), then /static/assets (local Rust server)
+    const tryFetch = (path: string) => fetch(path).then(r => r.ok ? r.json() : null)
+    tryFetch('/assets/default-layout.json')
+      .then(layout => layout || tryFetch('/static/assets/default-layout.json'))
       .then((layout: OfficeLayout | null) => {
         if (layout && layout.version === 1) {
           const os = getOfficeState()
@@ -115,13 +119,18 @@ export function useApiPolling(
 
     const poll = async () => {
       try {
-        const resp = await fetch(`${API_BASE}/agents`)
+        // Use channel-specific endpoint if channelId provided, otherwise legacy /agents
+        const endpoint = channelId
+          ? `${API_BASE}/channels/${channelId}/agents`
+          : `${API_BASE}/agents`
+        const resp = await fetch(endpoint)
         if (!resp.ok) return
         const apiAgents: ApiAgent[] = await resp.json()
         const os = getOfficeState()
         const agentMap = agentMapRef.current
         const prevStates = prevStateRef.current
 
+        // Filter online agents (isMain only exists in legacy API)
         const onlineAgents = apiAgents.filter((a) => a.online && !a.isMain)
         const currentIds = new Set<string>()
         const numericIds: number[] = []
@@ -152,7 +161,7 @@ export function useApiPolling(
             name: agent.name,
             state: agent.state,
             detail: agent.detail,
-            framework: agent.framework,
+            framework: agent.framework || '',
           })
 
           // Update character state/detail on every poll
@@ -199,7 +208,7 @@ export function useApiPolling(
     poll()
     const interval = setInterval(poll, POLL_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [layoutReady, getOfficeState])
+  }, [layoutReady, getOfficeState, channelId])
 
   return { agents, agentInfos, layoutReady }
 }

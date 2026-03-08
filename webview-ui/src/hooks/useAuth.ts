@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 
-const API_BASE = ''
+// In production, set VITE_API_URL=https://api.clawtown.dev
+const API_BASE = import.meta.env.VITE_API_URL || ''
 const USER_TOKEN_KEY = 'user_token'
 
 export interface AuthUser {
@@ -67,7 +68,7 @@ export function useAuth() {
   }, [fetchUser])
 
   const loginWithGitHub = useCallback(() => {
-    window.location.href = '/auth/github'
+    window.location.href = `${API_BASE}/auth/github`
   }, [])
 
   const logout = useCallback(() => {
