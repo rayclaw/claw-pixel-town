@@ -8,7 +8,30 @@ pub struct AppConfig {
     pub presence: PresenceConfig,
     #[serde(default)]
     pub storage: StorageConfig,
+    #[serde(default)]
+    pub security: SecurityConfig,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SecurityConfig {
+    /// Admin token for /set_state and /broadcast endpoints (optional)
+    #[serde(default)]
+    pub admin_token: Option<String>,
+    /// Rate limit: requests per minute per IP (default: 60)
+    #[serde(default = "default_rate_limit")]
+    pub rate_limit_per_minute: u32,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        SecurityConfig {
+            admin_token: None,
+            rate_limit_per_minute: default_rate_limit(),
+        }
+    }
+}
+
+fn default_rate_limit() -> u32 { 60 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
@@ -86,5 +109,6 @@ pub fn load_config() -> AppConfig {
         server: default_server(),
         presence: PresenceConfig::default(),
         storage: StorageConfig::default(),
+        security: SecurityConfig::default(),
     }
 }

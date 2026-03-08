@@ -1,68 +1,64 @@
 use rusqlite::{Connection, params};
 use crate::types::*;
-use std::sync::Mutex;
+use crate::migrations;
+use std::sync::{Arc, Mutex, PoisonError};
 
+/// Database error type
+#[derive(Debug)]
+pub enum DbError {
+    Sqlite(rusqlite::Error),
+    LockPoisoned,
+    SpawnBlocking,
+}
+
+impl std::fmt::Display for DbError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DbError::Sqlite(e) => write!(f, "SQLite error: {}", e),
+            DbError::LockPoisoned => write!(f, "Database lock poisoned"),
+            DbError::SpawnBlocking => write!(f, "spawn_blocking task failed"),
+        }
+    }
+}
+
+impl std::error::Error for DbError {}
+
+impl From<rusqlite::Error> for DbError {
+    fn from(e: rusqlite::Error) -> Self {
+        DbError::Sqlite(e)
+    }
+}
+
+impl<T> From<PoisonError<T>> for DbError {
+    fn from(_: PoisonError<T>) -> Self {
+        DbError::LockPoisoned
+    }
+}
+
+/// Thread-safe database wrapper
+#[derive(Clone)]
 pub struct Database {
-    conn: Mutex<Connection>,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl Database {
-    pub fn new(path: &str) -> Result<Self, rusqlite::Error> {
+    pub fn new(path: &str) -> Result<Self, DbError> {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
-        let db = Database { conn: Mutex::new(conn) };
-        db.migrate()?;
+
+        // Run migrations
+        migrations::run_migrations(&conn)
+            .map_err(|e| DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e))))?;
+
+        let db = Database { conn: Arc::new(Mutex::new(conn)) };
         Ok(db)
-    }
-
-    fn migrate(&self) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS join_keys (
-                key         TEXT PRIMARY KEY,
-                max_concurrent INTEGER NOT NULL DEFAULT 3,
-                reusable    BOOLEAN NOT NULL DEFAULT 1,
-                expires_at  TEXT,
-                created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS agents (
-                agent_id    TEXT PRIMARY KEY,
-                name        TEXT NOT NULL,
-                is_main     BOOLEAN NOT NULL DEFAULT 0,
-                state       TEXT NOT NULL DEFAULT 'idle',
-                detail      TEXT NOT NULL DEFAULT '',
-                area        TEXT NOT NULL DEFAULT 'breakroom',
-                framework   TEXT NOT NULL DEFAULT 'unknown',
-                join_key    TEXT NOT NULL DEFAULT '',
-                online      BOOLEAN NOT NULL DEFAULT 1,
-                auth_status TEXT NOT NULL DEFAULT 'approved',
-                avatar      TEXT NOT NULL DEFAULT 'guest_role_1',
-                last_push_at TEXT NOT NULL DEFAULT (datetime('now')),
-                created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_agents_join_key ON agents(join_key);
-            CREATE INDEX IF NOT EXISTS idx_agents_online ON agents(online);
-
-            CREATE TABLE IF NOT EXISTS main_state (
-                id          INTEGER PRIMARY KEY CHECK (id = 1),
-                state       TEXT NOT NULL DEFAULT 'idle',
-                detail      TEXT NOT NULL DEFAULT '',
-                progress    INTEGER NOT NULL DEFAULT 0,
-                updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-
-            INSERT OR IGNORE INTO main_state (id) VALUES (1);"
-        )?;
-        Ok(())
     }
 
     // --- Main State ---
 
-    pub fn get_main_state(&self) -> Result<MainState, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
+    pub fn get_main_state(&self) -> Result<MainState, DbError> {
+        let conn = self.conn.lock()?;
+        let result = conn.query_row(
             "SELECT state, detail, progress, updated_at FROM main_state WHERE id = 1",
             [],
             |row| {
@@ -74,11 +70,12 @@ impl Database {
                     updated_at: row.get(3)?,
                 })
             },
-        )
+        )?;
+        Ok(result)
     }
 
-    pub fn set_main_state(&self, state: &str, detail: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn set_main_state(&self, state: &str, detail: &str) -> Result<(), DbError> {
+        let conn = self.conn.lock()?;
         let normalized = AgentState::from_str_normalized(state);
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
@@ -90,8 +87,8 @@ impl Database {
 
     // --- Join Keys ---
 
-    pub fn get_join_key(&self, key: &str) -> Result<Option<JoinKey>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn get_join_key(&self, key: &str) -> Result<Option<JoinKey>, DbError> {
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT key, max_concurrent, reusable, expires_at, created_at FROM join_keys WHERE key = ?1"
         )?;
@@ -108,8 +105,8 @@ impl Database {
         }
     }
 
-    pub fn upsert_join_key(&self, jk: &JoinKey) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn upsert_join_key(&self, jk: &JoinKey) -> Result<(), DbError> {
+        let conn = self.conn.lock()?;
         conn.execute(
             "INSERT INTO join_keys (key, max_concurrent, reusable, expires_at, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)
@@ -119,19 +116,20 @@ impl Database {
         Ok(())
     }
 
-    pub fn count_online_agents_by_key(&self, key: &str) -> Result<u32, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
+    pub fn count_online_agents_by_key(&self, key: &str) -> Result<u32, DbError> {
+        let conn = self.conn.lock()?;
+        let count = conn.query_row(
             "SELECT COUNT(*) FROM agents WHERE join_key = ?1 AND online = 1",
             params![key],
             |row| row.get(0),
-        )
+        )?;
+        Ok(count)
     }
 
     // --- Agents ---
 
-    pub fn insert_agent(&self, agent: &Agent) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn insert_agent(&self, agent: &Agent) -> Result<(), DbError> {
+        let conn = self.conn.lock()?;
         conn.execute(
             "INSERT INTO agents (agent_id, name, is_main, state, detail, area, framework, join_key, online, auth_status, avatar, last_push_at, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
@@ -145,8 +143,8 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_agent(&self, agent_id: &str) -> Result<Option<Agent>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn get_agent(&self, agent_id: &str) -> Result<Option<Agent>, DbError> {
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT agent_id, name, is_main, state, detail, area, framework, join_key, online, auth_status, avatar, last_push_at, created_at
              FROM agents WHERE agent_id = ?1"
@@ -180,8 +178,8 @@ impl Database {
         }
     }
 
-    pub fn get_all_agents(&self) -> Result<Vec<Agent>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn get_all_agents(&self) -> Result<Vec<Agent>, DbError> {
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT agent_id, name, is_main, state, detail, area, framework, join_key, online, auth_status, avatar, last_push_at, created_at
              FROM agents ORDER BY created_at ASC"
@@ -209,11 +207,11 @@ impl Database {
                 created_at: row.get(12)?,
             })
         })?;
-        rows.collect()
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
 
-    pub fn update_agent_state(&self, agent_id: &str, state: AgentState, detail: &str) -> Result<bool, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn update_agent_state(&self, agent_id: &str, state: AgentState, detail: &str) -> Result<bool, DbError> {
+        let conn = self.conn.lock()?;
         let now = chrono::Utc::now().to_rfc3339();
         let area = state.area();
         let changed = conn.execute(
@@ -224,8 +222,8 @@ impl Database {
     }
 
     /// Update state for all online non-main agents
-    pub fn broadcast_agent_state(&self, state: AgentState, detail: &str) -> Result<u64, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn broadcast_agent_state(&self, state: AgentState, detail: &str) -> Result<u64, DbError> {
+        let conn = self.conn.lock()?;
         let now = chrono::Utc::now().to_rfc3339();
         let area = state.area();
         let changed = conn.execute(
@@ -236,14 +234,14 @@ impl Database {
         Ok(changed as u64)
     }
 
-    pub fn remove_agent(&self, agent_id: &str) -> Result<bool, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn remove_agent(&self, agent_id: &str) -> Result<bool, DbError> {
+        let conn = self.conn.lock()?;
         let changed = conn.execute("DELETE FROM agents WHERE agent_id = ?1", params![agent_id])?;
         Ok(changed > 0)
     }
 
-    pub fn mark_idle_expired(&self, ttl_secs: i64) -> Result<u64, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn mark_idle_expired(&self, ttl_secs: i64) -> Result<u64, DbError> {
+        let conn = self.conn.lock()?;
         let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(ttl_secs)).to_rfc3339();
         let changed = conn.execute(
             "UPDATE agents SET state = 'idle', area = 'breakroom'
@@ -253,8 +251,8 @@ impl Database {
         Ok(changed as u64)
     }
 
-    pub fn mark_offline_expired(&self, ttl_secs: i64) -> Result<u64, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn mark_offline_expired(&self, ttl_secs: i64) -> Result<u64, DbError> {
+        let conn = self.conn.lock()?;
         let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(ttl_secs)).to_rfc3339();
         let changed = conn.execute(
             "UPDATE agents SET online = 0, auth_status = 'offline'
@@ -265,8 +263,8 @@ impl Database {
     }
 
     /// Ensure the main "star" agent exists
-    pub fn ensure_main_agent(&self, name: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+    pub fn ensure_main_agent(&self, name: &str) -> Result<(), DbError> {
+        let conn = self.conn.lock()?;
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT OR IGNORE INTO agents (agent_id, name, is_main, state, detail, area, framework, join_key, online, auth_status, avatar, last_push_at, created_at)
@@ -277,14 +275,98 @@ impl Database {
     }
 
     /// Sync main agent state from the main_state table
-    pub fn sync_main_agent_state(&self) -> Result<(), rusqlite::Error> {
+    pub fn sync_main_agent_state(&self) -> Result<(), DbError> {
         let main = self.get_main_state()?;
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock()?;
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "UPDATE agents SET state = ?1, area = ?2, detail = ?3, last_push_at = ?4 WHERE agent_id = 'star'",
             params![main.state.to_string(), main.state.area().to_string(), main.detail, now],
         )?;
         Ok(())
+    }
+}
+
+// --- Async wrappers using spawn_blocking ---
+
+impl Database {
+    /// Async wrapper for get_main_state
+    pub async fn get_main_state_async(&self) -> Result<MainState, DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.get_main_state())
+            .await
+            .map_err(|_| DbError::SpawnBlocking)?
+    }
+
+    /// Async wrapper for set_main_state
+    pub async fn set_main_state_async(&self, state: String, detail: String) -> Result<(), DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.set_main_state(&state, &detail))
+            .await
+            .map_err(|_| DbError::SpawnBlocking)?
+    }
+
+    /// Async wrapper for get_join_key
+    pub async fn get_join_key_async(&self, key: String) -> Result<Option<JoinKey>, DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.get_join_key(&key))
+            .await
+            .map_err(|_| DbError::SpawnBlocking)?
+    }
+
+    /// Async wrapper for count_online_agents_by_key
+    pub async fn count_online_agents_by_key_async(&self, key: String) -> Result<u32, DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.count_online_agents_by_key(&key))
+            .await
+            .map_err(|_| DbError::SpawnBlocking)?
+    }
+
+    /// Async wrapper for insert_agent
+    pub async fn insert_agent_async(&self, agent: Agent) -> Result<(), DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.insert_agent(&agent))
+            .await
+            .map_err(|_| DbError::SpawnBlocking)?
+    }
+
+    /// Async wrapper for get_agent
+    pub async fn get_agent_async(&self, agent_id: String) -> Result<Option<Agent>, DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.get_agent(&agent_id))
+            .await
+            .map_err(|_| DbError::SpawnBlocking)?
+    }
+
+    /// Async wrapper for get_all_agents
+    pub async fn get_all_agents_async(&self) -> Result<Vec<Agent>, DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.get_all_agents())
+            .await
+            .map_err(|_| DbError::SpawnBlocking)?
+    }
+
+    /// Async wrapper for update_agent_state
+    pub async fn update_agent_state_async(&self, agent_id: String, state: AgentState, detail: String) -> Result<bool, DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.update_agent_state(&agent_id, state, &detail))
+            .await
+            .map_err(|_| DbError::SpawnBlocking)?
+    }
+
+    /// Async wrapper for broadcast_agent_state
+    pub async fn broadcast_agent_state_async(&self, state: AgentState, detail: String) -> Result<u64, DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.broadcast_agent_state(state, &detail))
+            .await
+            .map_err(|_| DbError::SpawnBlocking)?
+    }
+
+    /// Async wrapper for remove_agent
+    pub async fn remove_agent_async(&self, agent_id: String) -> Result<bool, DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.remove_agent(&agent_id))
+            .await
+            .map_err(|_| DbError::SpawnBlocking)?
     }
 }

@@ -3,7 +3,7 @@ use axum::{
     Router,
     extract::State,
     extract::Path,
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
     response::Json,
     routing::{get, post},
 };
@@ -21,6 +21,54 @@ pub struct ErrorResponse {
 
 fn err(status: StatusCode, msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
     (status, Json(ErrorResponse { error: msg.into() }))
+}
+
+// --- Input Validation ---
+
+const MAX_NAME_LEN: usize = 32;
+const MAX_DETAIL_LEN: usize = 256;
+
+fn sanitize_string(s: &str, max_len: usize) -> String {
+    // Strip HTML tags and limit length
+    let stripped: String = s.chars()
+        .filter(|c| *c != '<' && *c != '>')
+        .take(max_len)
+        .collect();
+    stripped.trim().to_string()
+}
+
+fn validate_name(name: &str) -> Result<String, (StatusCode, Json<ErrorResponse>)> {
+    let sanitized = sanitize_string(name, MAX_NAME_LEN);
+    if sanitized.is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "Name cannot be empty"));
+    }
+    Ok(sanitized)
+}
+
+fn validate_detail(detail: &str) -> String {
+    sanitize_string(detail, MAX_DETAIL_LEN)
+}
+
+// --- Admin Auth ---
+
+fn check_admin_token(headers: &HeaderMap, expected: &Option<String>) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let Some(expected_token) = expected else {
+        // No admin token configured, allow all requests
+        return Ok(());
+    };
+
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
+
+    if token == expected_token {
+        Ok(())
+    } else {
+        Err(err(StatusCode::UNAUTHORIZED, "Invalid or missing admin token"))
+    }
 }
 
 pub fn api_routes() -> Router<Arc<AppState>> {
@@ -62,9 +110,14 @@ struct SetStateRequest {
 
 async fn set_state(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<SetStateRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
-    state.db.set_main_state(&body.state, &body.detail)
+    // Admin auth required
+    check_admin_token(&headers, &state.config.security.admin_token)?;
+
+    let detail = validate_detail(&body.detail);
+    state.db.set_main_state(&body.state, &detail)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     // Also sync to main agent
     let _ = state.db.sync_main_agent_state();
@@ -83,9 +136,9 @@ async fn get_agents(State(state): State<Arc<AppState>>) -> AppResult<Json<Vec<Ag
 async fn get_agent_detail(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> AppResult<Json<Agent>> {
+) -> AppResult<Json<AgentPublicView>> {
     match state.db.get_agent(&id) {
-        Ok(Some(agent)) => Ok(Json(agent)),
+        Ok(Some(agent)) => Ok(Json(AgentPublicView::from(&agent))),
         Ok(None) => Err(err(StatusCode::NOT_FOUND, "Agent not found")),
         Err(e) => Err(err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
@@ -108,6 +161,9 @@ async fn join_agent(
     State(state): State<Arc<AppState>>,
     Json(body): Json<JoinRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
+    // Validate input
+    let name = validate_name(&body.name)?;
+
     // Validate join key
     let jk = state.db.get_join_key(&body.join_key)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -136,12 +192,12 @@ async fn join_agent(
 
     let agent = Agent {
         agent_id: agent_id.clone(),
-        name: body.name.clone(),
+        name: name.clone(),
         is_main: false,
         state: AgentState::Idle,
         detail: String::new(),
         area: Area::Breakroom,
-        framework: body.framework.clone(),
+        framework: sanitize_string(&body.framework, MAX_NAME_LEN),
         join_key: body.join_key.clone(),
         online: true,
         auth_status: "approved".into(),
@@ -153,11 +209,11 @@ async fn join_agent(
     state.db.insert_agent(&agent)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    tracing::info!("Agent joined: {} ({}) via key {}", agent.name, agent_id, body.join_key);
+    tracing::info!("Agent joined: {} ({}) via key {}", name, agent_id, body.join_key);
 
     Ok(Json(serde_json::json!({
         "agentId": agent_id,
-        "name": body.name,
+        "name": name,
         "authStatus": "approved",
         "avatar": agent.avatar,
     })))
@@ -191,8 +247,9 @@ async fn agent_push(
         return Err(err(StatusCode::FORBIDDEN, "Invalid join key for this agent"));
     }
 
+    let detail = validate_detail(&body.detail);
     let normalized = AgentState::from_str_normalized(&body.state);
-    state.db.update_agent_state(&body.agent_id, normalized, &body.detail)
+    state.db.update_agent_state(&body.agent_id, normalized, &detail)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -231,10 +288,15 @@ async fn leave_agent(
 
 async fn broadcast_state(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<SetStateRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
+    // Admin auth required
+    check_admin_token(&headers, &state.config.security.admin_token)?;
+
+    let detail = validate_detail(&body.detail);
     let normalized = star_office_core::types::AgentState::from_str_normalized(&body.state);
-    let count = state.db.broadcast_agent_state(normalized, &body.detail)
+    let count = state.db.broadcast_agent_state(normalized, &detail)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(serde_json::json!({ "ok": true, "updated": count })))
 }
