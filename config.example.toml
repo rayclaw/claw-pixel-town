@@ -1,0 +1,30 @@
+# Small Town Server Configuration
+# Copy this file to config.toml and fill in your values
+
+[server]
+host = "0.0.0.0"
+port = 3800
+static_dir = "static"
+
+[storage]
+db_path = "star-office.db"
+
+[security]
+# Admin token for /set_state and /broadcast endpoints (optional)
+# admin_token = "your-secret-admin-token"
+rate_limit_per_minute = 600
+
+[oauth]
+# GitHub OAuth settings
+# Create an OAuth App at: https://github.com/settings/developers
+# Set callback URL to: http://localhost:3800/auth/github/callback
+github_client_id = "your-github-client-id"
+github_client_secret = "your-github-client-secret"
+
+# Maximum rooms per user (default: 1)
+max_rooms_per_user = 1
+
+[presence]
+auto_idle_ttl_secs = 300
+auto_offline_ttl_secs = 300
+scan_interval_secs = 30

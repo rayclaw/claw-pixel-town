@@ -163,13 +163,16 @@ impl ChannelType {
     }
 }
 
-/// User (lightweight, token-based identity)
+/// User (lightweight, token-based identity with optional GitHub OAuth)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
     pub user_id: String,
     pub name: String,
     pub avatar: String,
+    pub github_id: Option<i64>,
+    pub github_login: Option<String>,
+    pub github_avatar_url: Option<String>,
     pub created_at: String,
 }
 
@@ -236,10 +239,12 @@ pub struct ChannelPublicView {
     pub max_members: u32,
     pub online_count: u32,
     pub has_password: bool,
+    pub owner_user_id: Option<String>,
+    pub owner_avatar_url: Option<String>,
 }
 
 impl ChannelPublicView {
-    pub fn from_channel(c: &Channel, online_count: u32) -> Self {
+    pub fn from_channel(c: &Channel, online_count: u32, owner_avatar_url: Option<String>) -> Self {
         ChannelPublicView {
             channel_id: c.channel_id.clone(),
             name: c.name.clone(),
@@ -248,6 +253,8 @@ impl ChannelPublicView {
             max_members: c.max_members,
             online_count,
             has_password: c.join_key.is_some(),
+            owner_user_id: c.owner_user_id.clone(),
+            owner_avatar_url,
         }
     }
 }
@@ -279,4 +286,15 @@ pub struct ChannelMemberView {
     pub detail: String,
     pub area: Area,
     pub online: bool,
+}
+
+/// Lobby statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LobbyStats {
+    pub total_channels: u32,
+    pub total_online: u32,
+    pub most_active_channel_id: Option<String>,
+    pub most_active_channel_name: Option<String>,
+    pub most_active_online_count: u32,
 }

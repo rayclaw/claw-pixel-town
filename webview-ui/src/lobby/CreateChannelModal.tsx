@@ -62,7 +62,7 @@ export function CreateChannelModal({ onClose, onCreated }: CreateChannelModalPro
         joinKey: usePassword && password ? password : undefined,
         channelType: usePassword ? 'private' : 'public',
       })
-      onCreated(channel.channel_id)
+      onCreated(channel.channelId)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create room')
     } finally {

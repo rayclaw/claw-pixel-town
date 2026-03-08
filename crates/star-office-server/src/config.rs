@@ -10,7 +10,28 @@ pub struct AppConfig {
     pub storage: StorageConfig,
     #[serde(default)]
     pub security: SecurityConfig,
+    #[serde(default)]
+    pub oauth: OAuthConfig,
 }
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct OAuthConfig {
+    /// GitHub OAuth client ID
+    #[serde(default)]
+    pub github_client_id: Option<String>,
+    /// GitHub OAuth client secret
+    #[serde(default)]
+    pub github_client_secret: Option<String>,
+    /// Max rooms per user (default: 1)
+    #[serde(default = "default_max_rooms")]
+    pub max_rooms_per_user: u32,
+    /// Max bots per user (default: 5)
+    #[serde(default = "default_max_bots")]
+    pub max_bots_per_user: u32,
+}
+
+fn default_max_rooms() -> u32 { 1 }
+fn default_max_bots() -> u32 { 5 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SecurityConfig {
@@ -31,7 +52,7 @@ impl Default for SecurityConfig {
     }
 }
 
-fn default_rate_limit() -> u32 { 60 }
+fn default_rate_limit() -> u32 { 6000 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
@@ -110,5 +131,6 @@ pub fn load_config() -> AppConfig {
         presence: PresenceConfig::default(),
         storage: StorageConfig::default(),
         security: SecurityConfig::default(),
+        oauth: OAuthConfig::default(),
     }
 }

@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react'
 import type { ChannelPublicView } from '../hooks/useChannelApi.js'
 
 interface ChannelCardProps {
@@ -5,9 +6,72 @@ interface ChannelCardProps {
   onClick: () => void
 }
 
+// Simple hash function for generating colors from channel name
+function hashCode(str: string): number {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i)
+    hash |= 0
+  }
+  return Math.abs(hash)
+}
+
+// Generate a placeholder office thumbnail
+function drawPlaceholderThumbnail(ctx: CanvasRenderingContext2D, width: number, height: number, seed: number) {
+  // Floor background
+  ctx.fillStyle = '#3a3a4a'
+  ctx.fillRect(0, 0, width, height)
+
+  // Draw floor tiles
+  const tileSize = 8
+  for (let y = 0; y < height; y += tileSize) {
+    for (let x = 0; x < width; x += tileSize) {
+      const shade = ((x + y) / tileSize) % 2 === 0 ? '#404050' : '#383848'
+      ctx.fillStyle = shade
+      ctx.fillRect(x, y, tileSize, tileSize)
+    }
+  }
+
+  // Draw some "furniture" rectangles based on seed
+  const rng = (s: number) => {
+    s = Math.sin(s) * 10000
+    return s - Math.floor(s)
+  }
+
+  const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6']
+
+  for (let i = 0; i < 6; i++) {
+    const r = rng(seed + i * 100)
+    const x = Math.floor(r * (width - 20)) + 4
+    const y = Math.floor(rng(seed + i * 200) * (height - 16)) + 4
+    const w = 12 + Math.floor(rng(seed + i * 300) * 16)
+    const h = 8 + Math.floor(rng(seed + i * 400) * 12)
+    ctx.fillStyle = colors[i % colors.length]
+    ctx.globalAlpha = 0.7
+    ctx.fillRect(x, y, w, h)
+  }
+
+  ctx.globalAlpha = 1
+
+  // Border
+  ctx.strokeStyle = '#4a4a5a'
+  ctx.lineWidth = 1
+  ctx.strokeRect(0.5, 0.5, width - 1, height - 1)
+}
+
 export function ChannelCard({ channel, onClick }: ChannelCardProps) {
-  const hasPassword = channel.channel_type === 'private'
-  const isFull = channel.online_count >= channel.max_members
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const hasPassword = channel.hasPassword
+  const isFull = channel.onlineCount >= channel.maxMembers
+  const seed = hashCode(channel.channelId || channel.name)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    drawPlaceholderThumbnail(ctx, canvas.width, canvas.height, seed)
+  }, [seed])
 
   return (
     <div
@@ -76,12 +140,12 @@ export function ChannelCard({ channel, onClick }: ChannelCardProps) {
             width: 8,
             height: 8,
             borderRadius: '50%',
-            background: channel.online_count > 0 ? '#4ade80' : '#666',
+            background: channel.onlineCount > 0 ? '#4ade80' : '#666',
             display: 'inline-block',
           }}
         />
         <span>
-          {channel.online_count} / {channel.max_members}
+          {channel.onlineCount} / {channel.maxMembers}
         </span>
         {isFull && (
           <span style={{ color: 'var(--pixel-warning, #f59e0b)', marginLeft: 4 }}>
@@ -90,22 +154,45 @@ export function ChannelCard({ channel, onClick }: ChannelCardProps) {
         )}
       </div>
 
-      {/* Thumbnail placeholder */}
-      <div
+      {/* Thumbnail */}
+      <canvas
+        ref={canvasRef}
+        width={160}
+        height={80}
         style={{
           marginTop: 12,
+          width: '100%',
           height: 80,
-          background: 'var(--pixel-bg, #1a1a2a)',
-          border: '1px solid var(--pixel-border, #4a4a5a)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--pixel-text-dim, #666)',
-          fontSize: '12px',
+          imageRendering: 'pixelated',
         }}
-      >
-        Preview
-      </div>
+      />
+
+      {/* Owner Avatar */}
+      {channel.ownerAvatarUrl && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            right: 8,
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            overflow: 'hidden',
+            border: '2px solid var(--pixel-border, #4a4a5a)',
+            background: 'var(--pixel-card-bg, #2a2a3a)',
+          }}
+        >
+          <img
+            src={channel.ownerAvatarUrl}
+            alt="Owner"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+            }}
+          />
+        </div>
+      )}
     </div>
   )
 }

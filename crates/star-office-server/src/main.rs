@@ -1,6 +1,7 @@
 mod config;
 mod routes;
 mod channel_routes;
+mod oauth_routes;
 mod background;
 mod events;
 
@@ -66,6 +67,8 @@ async fn main() {
         .merge(channel_routes::channel_routes())
         .merge(channel_routes::bot_routes())
         .merge(channel_routes::user_routes())
+        .merge(channel_routes::lobby_routes())
+        .merge(oauth_routes::oauth_routes())
         .nest_service("/static", ServeDir::new(&cfg.server.static_dir))
         .route("/", get(move || {
             let dir = static_dir.clone();

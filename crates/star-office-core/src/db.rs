@@ -381,8 +381,9 @@ impl Database {
     pub fn create_user(&self, user: &User) -> Result<(), DbError> {
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT INTO users (user_id, name, avatar, created_at) VALUES (?1, ?2, ?3, ?4)",
-            params![user.user_id, user.name, user.avatar, user.created_at],
+            "INSERT INTO users (user_id, name, avatar, github_id, github_login, github_avatar_url, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![user.user_id, user.name, user.avatar, user.github_id, user.github_login, user.github_avatar_url, user.created_at],
         )?;
         Ok(())
     }
@@ -390,7 +391,7 @@ impl Database {
     pub fn get_user(&self, user_id: &str) -> Result<Option<User>, DbError> {
         let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
-            "SELECT user_id, name, avatar, created_at FROM users WHERE user_id = ?1"
+            "SELECT user_id, name, avatar, github_id, github_login, github_avatar_url, created_at FROM users WHERE user_id = ?1"
         )?;
         let mut rows = stmt.query(params![user_id])?;
         match rows.next()? {
@@ -398,7 +399,30 @@ impl Database {
                 user_id: row.get(0)?,
                 name: row.get(1)?,
                 avatar: row.get(2)?,
-                created_at: row.get(3)?,
+                github_id: row.get(3)?,
+                github_login: row.get(4)?,
+                github_avatar_url: row.get(5)?,
+                created_at: row.get(6)?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub fn get_user_by_github_id(&self, github_id: i64) -> Result<Option<User>, DbError> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT user_id, name, avatar, github_id, github_login, github_avatar_url, created_at FROM users WHERE github_id = ?1"
+        )?;
+        let mut rows = stmt.query(params![github_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(User {
+                user_id: row.get(0)?,
+                name: row.get(1)?,
+                avatar: row.get(2)?,
+                github_id: row.get(3)?,
+                github_login: row.get(4)?,
+                github_avatar_url: row.get(5)?,
+                created_at: row.get(6)?,
             })),
             None => Ok(None),
         }
@@ -413,6 +437,9 @@ impl Database {
             user_id: user_id.to_string(),
             name: "Anonymous".to_string(),
             avatar: "default".to_string(),
+            github_id: None,
+            github_login: None,
+            github_avatar_url: None,
             created_at: now,
         };
         self.create_user(&user)?;
@@ -426,6 +453,25 @@ impl Database {
             params![name, avatar, user_id],
         )?;
         Ok(changed > 0)
+    }
+
+    pub fn update_user_github(&self, user_id: &str, github_id: i64, github_login: &str, github_avatar_url: &str) -> Result<bool, DbError> {
+        let conn = self.conn.lock()?;
+        let changed = conn.execute(
+            "UPDATE users SET github_id = ?1, github_login = ?2, github_avatar_url = ?3, name = ?2 WHERE user_id = ?4",
+            params![github_id, github_login, github_avatar_url, user_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn count_user_channels(&self, user_id: &str) -> Result<u32, DbError> {
+        let conn = self.conn.lock()?;
+        let count: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM channels WHERE owner_user_id = ?1",
+            params![user_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
     }
 
     // --- Bots ---
@@ -490,6 +536,16 @@ impl Database {
         let conn = self.conn.lock()?;
         let changed = conn.execute("DELETE FROM bots WHERE bot_id = ?1", params![bot_id])?;
         Ok(changed > 0)
+    }
+
+    pub fn count_user_bots(&self, owner_user_id: &str) -> Result<u32, DbError> {
+        let conn = self.conn.lock()?;
+        let count: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM bots WHERE owner_user_id = ?1",
+            params![owner_user_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
     }
 
     pub fn update_bot_channel(&self, bot_id: &str, channel_id: Option<&str>, agent_id: Option<&str>) -> Result<bool, DbError> {
@@ -633,6 +689,46 @@ impl Database {
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    /// Get lobby stats: total channels, total online agents, most active channel
+    pub fn get_lobby_stats(&self) -> Result<LobbyStats, DbError> {
+        let conn = self.conn.lock()?;
+
+        // Total public channels
+        let total_channels: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM channels WHERE is_public = 1",
+            [],
+            |row| row.get(0),
+        )?;
+
+        // Total online agents across all channels
+        let total_online: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM channel_members WHERE online = 1",
+            [],
+            |row| row.get(0),
+        )?;
+
+        // Most active channel (most online members)
+        let most_active: Option<(String, String, u32)> = conn.query_row(
+            "SELECT c.channel_id, c.name, COUNT(cm.bot_id) as cnt
+             FROM channels c
+             LEFT JOIN channel_members cm ON c.channel_id = cm.channel_id AND cm.online = 1
+             WHERE c.is_public = 1
+             GROUP BY c.channel_id
+             ORDER BY cnt DESC
+             LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).ok();
+
+        Ok(LobbyStats {
+            total_channels,
+            total_online,
+            most_active_channel_id: most_active.as_ref().map(|(id, _, _)| id.clone()),
+            most_active_channel_name: most_active.as_ref().map(|(_, name, _)| name.clone()),
+            most_active_online_count: most_active.map(|(_, _, cnt)| cnt).unwrap_or(0),
+        })
     }
 
     pub fn update_channel(&self, channel_id: &str, name: &str, is_public: bool, max_members: u32) -> Result<bool, DbError> {

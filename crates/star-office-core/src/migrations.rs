@@ -6,6 +6,8 @@ use std::fs;
 const MIGRATIONS: &[(&str, &str)] = &[
     ("001_init", include_str!("../../../migrations/001_init.sql")),
     ("002_channels", include_str!("../../../migrations/002_channels.sql")),
+    ("003_thumbnails", include_str!("../../../migrations/003_thumbnails.sql")),
+    ("004_github_oauth", include_str!("../../../migrations/004_github_oauth.sql")),
 ];
 
 /// Error type for migration operations

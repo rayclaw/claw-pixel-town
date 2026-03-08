@@ -18,6 +18,9 @@ import { DebugView } from './components/DebugView.js'
 import { AgentPanel } from './components/AgentPanel.js'
 import { AgentNameLabels } from './components/AgentNameLabels.js'
 import { LobbyView } from './lobby/index.js'
+import { ChannelSettingsModal } from './components/ChannelSettingsModal.js'
+import { fetchChannel, type ApiChannel } from './hooks/useChannelApi.js'
+import { useAuth } from './hooks/useAuth.js'
 
 /** Simple hash-based router */
 function useHashRoute(): { view: 'lobby' | 'channel'; channelId: string | null } {
@@ -36,7 +39,9 @@ function parseHash(hash: string): { view: 'lobby' | 'channel'; channelId: string
   const path = hash.replace(/^#\/?/, '')
   if (path.startsWith('channel/')) {
     const channelId = path.slice(8)
-    return { view: 'channel', channelId: channelId || null }
+    // Treat empty string, "undefined", and "null" as invalid
+    const isValid = channelId && channelId !== 'undefined' && channelId !== 'null'
+    return { view: 'channel', channelId: isValid ? channelId : null }
   }
   return { view: 'lobby', channelId: null }
 }
@@ -385,30 +390,108 @@ function App() {
     return <LobbyView onEnterChannel={handleEnterChannel} />
   }
 
-  // Channel view - for now just show OfficeView
-  // TODO: Load channel-specific layout when channelId is available
+  // Channel view
+  return (
+    <ChannelView
+      channelId={route.channelId}
+      onBackToLobby={handleBackToLobby}
+    />
+  )
+}
+
+/** Channel view with owner settings */
+function ChannelView({
+  channelId,
+  onBackToLobby,
+}: {
+  channelId: string
+  onBackToLobby: () => void
+}) {
+  const { getUserToken } = useAuth()
+  const [channel, setChannel] = useState<ApiChannel | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
+
+  // Fetch channel info
+  useEffect(() => {
+    fetchChannel(channelId)
+      .then(setChannel)
+      .catch(() => setChannel(null))
+  }, [channelId])
+
+  // Check if current user is owner
+  const userToken = getUserToken()
+  const isOwner = channel && userToken && channel.ownerUserId === userToken
+
+  const handleDeleted = useCallback(() => {
+    setShowSettings(false)
+    onBackToLobby()
+  }, [onBackToLobby])
+
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      {/* Back to lobby button - top right to avoid overlap with zoom controls */}
-      <button
-        onClick={handleBackToLobby}
+      {/* Top right buttons */}
+      <div
         style={{
           position: 'absolute',
           top: 8,
           right: 8,
           zIndex: 100,
-          padding: '6px 12px',
-          fontSize: '14px',
-          background: 'var(--pixel-btn-bg, #3a3a4a)',
-          color: 'var(--pixel-text, #e0e0e0)',
-          border: '2px solid var(--pixel-border, #4a4a5a)',
-          borderRadius: 0,
-          cursor: 'pointer',
+          display: 'flex',
+          gap: 8,
         }}
       >
-        Back to Lobby
-      </button>
+        {isOwner && (
+          <button
+            onClick={() => setShowSettings(true)}
+            title="Room Settings"
+            style={{
+              padding: '6px 10px',
+              fontSize: '14px',
+              background: 'var(--pixel-btn-bg, #3a3a4a)',
+              color: 'var(--pixel-text, #e0e0e0)',
+              border: '2px solid var(--pixel-border, #4a4a5a)',
+              borderRadius: 0,
+              cursor: 'pointer',
+            }}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              style={{ display: 'block' }}
+            >
+              <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
+            </svg>
+          </button>
+        )}
+        <button
+          onClick={onBackToLobby}
+          style={{
+            padding: '8px 16px',
+            fontSize: '20px',
+            background: 'var(--pixel-btn-bg, #3a3a4a)',
+            color: 'var(--pixel-text, #e0e0e0)',
+            border: '2px solid var(--pixel-border, #4a4a5a)',
+            borderRadius: 0,
+            cursor: 'pointer',
+          }}
+        >
+          Back to Lobby
+        </button>
+      </div>
+
       <OfficeView />
+
+      {/* Settings Modal */}
+      {showSettings && channel && (
+        <ChannelSettingsModal
+          channelId={channelId}
+          channelName={channel.name}
+          onClose={() => setShowSettings(false)}
+          onDeleted={handleDeleted}
+        />
+      )}
     </div>
   )
 }

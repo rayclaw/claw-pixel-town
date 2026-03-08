@@ -22,6 +22,7 @@ export default defineConfig({
       '/bots': 'http://localhost:3800',
       '/user': 'http://localhost:3800',
       '/lobby': 'http://localhost:3800',
+      '/auth': 'http://localhost:3800',
     },
   },
 })

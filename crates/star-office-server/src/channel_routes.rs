@@ -43,24 +43,24 @@ pub fn channel_routes() -> Router<Arc<AppState>> {
         // Channel CRUD
         .route("/channels", post(create_channel))
         .route("/channels", get(list_channels))
-        .route("/channels/{id}", get(get_channel))
-        .route("/channels/{id}", patch(update_channel))
-        .route("/channels/{id}", delete(delete_channel))
+        .route("/channels/:id", get(get_channel))
+        .route("/channels/:id", patch(update_channel))
+        .route("/channels/:id", delete(delete_channel))
         // Channel operations
-        .route("/channels/{id}/join", post(join_channel))
-        .route("/channels/{id}/leave", post(leave_channel))
-        .route("/channels/{id}/push", post(push_channel))
-        .route("/channels/{id}/agents", get(list_channel_agents))
+        .route("/channels/:id/join", post(join_channel))
+        .route("/channels/:id/leave", post(leave_channel))
+        .route("/channels/:id/push", post(push_channel))
+        .route("/channels/:id/agents", get(list_channel_agents))
         // Channel layout
-        .route("/channels/{id}/layout", get(get_channel_layout))
-        .route("/channels/{id}/layout", post(save_channel_layout))
+        .route("/channels/:id/layout", get(get_channel_layout))
+        .route("/channels/:id/layout", post(save_channel_layout))
         // SSE events
-        .route("/channels/{id}/events", get(channel_events_sse))
+        .route("/channels/:id/events", get(channel_events_sse))
         // Whitelist (private channels)
-        .route("/channels/{id}/whitelist", get(get_whitelist))
-        .route("/channels/{id}/whitelist", post(set_whitelist))
-        .route("/channels/{id}/whitelist/add", post(add_to_whitelist))
-        .route("/channels/{id}/whitelist/{botId}", delete(remove_from_whitelist))
+        .route("/channels/:id/whitelist", get(get_whitelist))
+        .route("/channels/:id/whitelist", post(set_whitelist))
+        .route("/channels/:id/whitelist/add", post(add_to_whitelist))
+        .route("/channels/:id/whitelist/:botId", delete(remove_from_whitelist))
 }
 
 // =============================================================================
@@ -71,8 +71,8 @@ pub fn bot_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/bots", post(create_bot))
         .route("/bots", get(list_bots))
-        .route("/bots/{id}", get(get_bot))
-        .route("/bots/{id}", delete(delete_bot))
+        .route("/bots/:id", get(get_bot))
+        .route("/bots/:id", delete(delete_bot))
 }
 
 // =============================================================================
@@ -83,6 +83,16 @@ pub fn user_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/user", get(get_current_user))
         .route("/user", patch(update_user))
+}
+
+// =============================================================================
+// Lobby Routes
+// =============================================================================
+
+pub fn lobby_routes() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/lobby", get(get_lobby))
+        .route("/lobby/stats", get(get_lobby_stats))
 }
 
 // =============================================================================
@@ -114,8 +124,21 @@ async fn create_channel(
     let user_token = require_user_token(&headers)?;
 
     // Ensure user exists
-    state.db.get_or_create_user(&user_token)
+    let user = state.db.get_or_create_user(&user_token)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Only GitHub-authenticated users can create rooms
+    if user.github_id.is_none() {
+        return Err(err(StatusCode::FORBIDDEN, "Please login with GitHub to create a room"));
+    }
+
+    // Check room creation limit
+    let room_count = state.db.count_user_channels(&user_token)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let max_rooms = state.config.oauth.max_rooms_per_user;
+    if room_count >= max_rooms {
+        return Err(err(StatusCode::FORBIDDEN, format!("Room limit reached (max {})", max_rooms)));
+    }
 
     let name = validate_name(&body.name)?;
     let channel_id = format!("ch_{}", uuid::Uuid::new_v4().to_string().replace("-", "")[..12].to_string());
@@ -158,7 +181,13 @@ async fn list_channels(
     for c in &channels {
         let count = state.db.count_online_channel_members(&c.channel_id)
             .unwrap_or(0);
-        views.push(ChannelPublicView::from_channel(c, count));
+        // Get owner avatar if channel has an owner
+        let owner_avatar = if let Some(ref owner_id) = c.owner_user_id {
+            state.db.get_user(owner_id).ok().flatten().and_then(|u| u.github_avatar_url)
+        } else {
+            None
+        };
+        views.push(ChannelPublicView::from_channel(c, count, owner_avatar));
     }
 
     Ok(Json(views))
@@ -714,8 +743,21 @@ async fn create_bot(
     let user_token = require_user_token(&headers)?;
 
     // Ensure user exists
-    state.db.get_or_create_user(&user_token)
+    let user = state.db.get_or_create_user(&user_token)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Only GitHub-authenticated users can create bots
+    if user.github_id.is_none() {
+        return Err(err(StatusCode::FORBIDDEN, "Please login with GitHub to create a bot"));
+    }
+
+    // Check bot creation limit
+    let bot_count = state.db.count_user_bots(&user_token)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let max_bots = state.config.oauth.max_bots_per_user;
+    if bot_count >= max_bots {
+        return Err(err(StatusCode::FORBIDDEN, format!("Bot limit reached (max {})", max_bots)));
+    }
 
     let name = validate_name(&body.name)?;
     let bot_id = format!("bot_{}", uuid::Uuid::new_v4().to_string().replace("-", "")[..12].to_string());
@@ -833,4 +875,58 @@ async fn update_user(
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+// =============================================================================
+// Lobby Handlers
+// =============================================================================
+
+/// Lobby response with channels and aggregated data
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LobbyResponse {
+    channels: Vec<ChannelPublicView>,
+    total_channels: u32,
+    total_online: u32,
+}
+
+async fn get_lobby(
+    State(state): State<Arc<AppState>>,
+) -> AppResult<Json<LobbyResponse>> {
+    let channels = state.db.get_public_channels()
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut views = Vec::with_capacity(channels.len());
+    let mut total_online = 0u32;
+
+    for c in &channels {
+        let count = state.db.count_online_channel_members(&c.channel_id)
+            .unwrap_or(0);
+        total_online += count;
+        // Get owner avatar if channel has an owner
+        let owner_avatar = if let Some(ref owner_id) = c.owner_user_id {
+            state.db.get_user(owner_id).ok().flatten().and_then(|u| u.github_avatar_url)
+        } else {
+            None
+        };
+        views.push(ChannelPublicView::from_channel(c, count, owner_avatar));
+    }
+
+    // Sort by online count descending
+    views.sort_by(|a, b| b.online_count.cmp(&a.online_count));
+
+    Ok(Json(LobbyResponse {
+        total_channels: views.len() as u32,
+        total_online,
+        channels: views,
+    }))
+}
+
+async fn get_lobby_stats(
+    State(state): State<Arc<AppState>>,
+) -> AppResult<Json<LobbyStats>> {
+    let stats = state.db.get_lobby_stats()
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(stats))
 }

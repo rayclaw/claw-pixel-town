@@ -29,7 +29,7 @@ export function AgentPanel({ agentInfos, onSelectAgent, selectedAgentId }: Agent
     return (
       <div style={{
         position: 'absolute',
-        top: 8,
+        top: 56,
         right: 8,
         zIndex: 50,
         background: 'rgba(10, 10, 20, 0.85)',
@@ -52,7 +52,7 @@ export function AgentPanel({ agentInfos, onSelectAgent, selectedAgentId }: Agent
   return (
     <div style={{
       position: 'absolute',
-      top: 8,
+      top: 56,
       right: 8,
       zIndex: 50,
       background: 'rgba(10, 10, 20, 0.85)',
@@ -61,7 +61,7 @@ export function AgentPanel({ agentInfos, onSelectAgent, selectedAgentId }: Agent
       padding: '6px 0',
       minWidth: 220,
       maxWidth: 300,
-      maxHeight: 'calc(100vh - 60px)',
+      maxHeight: 'calc(100vh - 100px)',
       overflowY: 'auto',
       boxShadow: '2px 2px 0px #0a0a14',
     }}>

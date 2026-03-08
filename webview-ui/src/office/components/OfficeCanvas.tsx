@@ -631,7 +631,7 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
 
   // Wheel: Ctrl+wheel to zoom, plain wheel/trackpad to pan
   const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
+    (e: WheelEvent) => {
       e.preventDefault()
       if (e.ctrlKey || e.metaKey) {
         // Accumulate scroll delta, step zoom when threshold crossed
@@ -662,6 +662,14 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
     if (e.button === 1) e.preventDefault()
   }, [])
 
+  // Attach wheel event listener with { passive: false } to allow preventDefault
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    canvas.addEventListener('wheel', handleWheel, { passive: false })
+    return () => canvas.removeEventListener('wheel', handleWheel)
+  }, [handleWheel])
+
   return (
     <div
       ref={containerRef}
@@ -681,7 +689,6 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
         onClick={handleClick}
         onAuxClick={handleAuxClick}
         onMouseLeave={handleMouseLeave}
-        onWheel={handleWheel}
         onContextMenu={handleContextMenu}
         style={{ display: 'block' }}
       />
