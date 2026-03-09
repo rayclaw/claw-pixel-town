@@ -204,10 +204,10 @@ export async function deleteBot(botId: string): Promise<void> {
 }
 
 /** Update a bot's name */
-export async function updateBot(botId: string, name: string): Promise<ApiBot> {
+export async function updateBot(botId: string, name: string): Promise<void> {
   const token = getUserToken()
   const resp = await fetch(`${API_BASE}/bots/${botId}`, {
-    method: 'PUT',
+    method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
       'x-user-token': token,
@@ -218,7 +218,6 @@ export async function updateBot(botId: string, name: string): Promise<ApiBot> {
     const err = await resp.json().catch(() => ({}))
     throw new Error(err.error || 'Failed to update bot')
   }
-  return resp.json()
 }
 
 /** Hook to fetch and manage channel list with lobby stats */

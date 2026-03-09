@@ -72,6 +72,7 @@ pub fn bot_routes() -> Router<Arc<AppState>> {
         .route("/bots", post(create_bot))
         .route("/bots", get(list_bots))
         .route("/bots/:id", get(get_bot))
+        .route("/bots/:id", patch(update_bot))
         .route("/bots/:id", delete(delete_bot))
 }
 
@@ -803,6 +804,41 @@ async fn get_bot(
         Ok(None) => Err(err(StatusCode::NOT_FOUND, "Bot not found")),
         Err(e) => Err(err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateBotRequest {
+    name: Option<String>,
+    avatar: Option<String>,
+}
+
+async fn update_bot(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(bot_id): Path<String>,
+    Json(body): Json<UpdateBotRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    let user_token = require_user_token(&headers)?;
+
+    let bot = state.db.get_bot(&bot_id)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "Bot not found"))?;
+
+    // Check ownership
+    if bot.owner_user_id.as_ref() != Some(&user_token) {
+        return Err(err(StatusCode::FORBIDDEN, "Only bot owner can update"));
+    }
+
+    let name = body.name.map(|n| sanitize_string(&n, MAX_NAME_LEN)).unwrap_or(bot.name);
+    let avatar = body.avatar.map(|a| sanitize_string(&a, MAX_NAME_LEN)).unwrap_or(bot.avatar);
+
+    state.db.update_bot(&bot_id, &name, &avatar)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    tracing::info!("Bot updated: {} ({})", name, bot_id);
+
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 async fn delete_bot(

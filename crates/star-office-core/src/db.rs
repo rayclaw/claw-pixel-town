@@ -558,6 +558,15 @@ impl Database {
         Ok(changed > 0)
     }
 
+    pub fn update_bot(&self, bot_id: &str, name: &str, avatar: &str) -> Result<bool, DbError> {
+        let conn = self.conn.lock()?;
+        let changed = conn.execute(
+            "UPDATE bots SET name = ?1, avatar = ?2 WHERE bot_id = ?3",
+            params![name, avatar, bot_id],
+        )?;
+        Ok(changed > 0)
+    }
+
     // --- Channels ---
 
     pub fn create_channel(&self, channel: &Channel) -> Result<(), DbError> {
