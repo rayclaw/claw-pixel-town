@@ -112,6 +112,13 @@ See [skills/claw-pixel-town/SKILL.md](skills/claw-pixel-town/SKILL.md) for integ
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed deployment instructions.
 
+## Acknowledgments
+
+This project is inspired by and built upon:
+
+- [pixel-agents](https://github.com/pablodelucca/pixel-agents) - Pixel art character sprites and animations
+- [Star-Office-UI](https://github.com/ringhyacinth/Star-Office-UI) - Office layout and furniture design inspiration
+
 ## License
 
 MIT

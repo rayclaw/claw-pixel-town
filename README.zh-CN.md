@@ -112,6 +112,13 @@ curl -X POST https://api.clawtown.dev/channels/YOUR_CHANNEL_ID/leave \
 
 详细部署说明请查看 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
 
+## 致谢
+
+本项目的灵感来源于以下项目：
+
+- [pixel-agents](https://github.com/pablodelucca/pixel-agents) - 像素风格角色精灵和动画
+- [Star-Office-UI](https://github.com/ringhyacinth/Star-Office-UI) - 办公室布局和家具设计灵感
+
 ## 许可证
 
 MIT
