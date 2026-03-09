@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import type { ChannelPublicView } from '../hooks/useChannelApi.js'
 
 interface ChannelCardProps {
@@ -64,6 +64,15 @@ export function ChannelCard({ channel, onClick }: ChannelCardProps) {
   const hasPassword = channel.hasPassword
   const isFull = channel.onlineCount >= channel.maxMembers
   const seed = hashCode(channel.channelId || channel.name)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopyId = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(channel.channelId).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }, [channel.channelId])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -152,6 +161,55 @@ export function ChannelCard({ channel, onClick }: ChannelCardProps) {
             Full
           </span>
         )}
+      </div>
+
+      {/* Channel ID */}
+      <div
+        style={{
+          marginTop: 6,
+          fontSize: '12px',
+          color: 'var(--pixel-text-dim, #666)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: 'monospace',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: 120,
+          }}
+          title={channel.channelId}
+        >
+          {channel.channelId}
+        </span>
+        <button
+          onClick={handleCopyId}
+          title="Copy Channel ID"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            padding: '2px 4px',
+            cursor: 'pointer',
+            color: copied ? '#4ade80' : 'var(--pixel-text-dim, #888)',
+            display: 'flex',
+            alignItems: 'center',
+            fontSize: '12px',
+          }}
+        >
+          {copied ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+            </svg>
+          )}
+        </button>
       </div>
 
       {/* Thumbnail */}
