@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchBots, createBot, deleteBot, type ApiBot } from '../hooks/useChannelApi.js'
+import { fetchBots, createBot, deleteBot, updateBot, type ApiBot } from '../hooks/useChannelApi.js'
 
 interface BotManagementProps {
   maxBots?: number
@@ -15,6 +15,9 @@ export function BotManagement({ maxBots = 5, onClose }: BotManagementProps) {
   const [creating, setCreating] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteBot, setConfirmDeleteBot] = useState<ApiBot | null>(null)
+  const [editingBot, setEditingBot] = useState<ApiBot | null>(null)
+  const [editName, setEditName] = useState('')
+  const [saving, setSaving] = useState(false)
 
   const loadBots = useCallback(async () => {
     try {
@@ -62,6 +65,32 @@ export function BotManagement({ maxBots = 5, onClose }: BotManagementProps) {
       setDeletingId(null)
     }
   }, [confirmDeleteBot, loadBots])
+
+  const handleStartEdit = useCallback((bot: ApiBot) => {
+    setEditingBot(bot)
+    setEditName(bot.name)
+  }, [])
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editingBot || !editName.trim()) return
+    setSaving(true)
+    setError(null)
+    try {
+      await updateBot(editingBot.botId, editName.trim())
+      setEditingBot(null)
+      setEditName('')
+      await loadBots()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to rename bot')
+    } finally {
+      setSaving(false)
+    }
+  }, [editingBot, editName, loadBots])
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingBot(null)
+    setEditName('')
+  }, [])
 
   const canCreateMore = bots.length < maxBots
 
@@ -240,16 +269,72 @@ export function BotManagement({ maxBots = 5, onClose }: BotManagementProps) {
                   border: '1px solid var(--pixel-border, #4a4a5a)',
                 }}
               >
-                <div>
-                  <div
-                    style={{
-                      fontSize: '20px',
-                      color: 'var(--pixel-text, #e0e0e0)',
-                      fontWeight: 'bold',
-                    }}
-                  >
-                    {bot.name}
-                  </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {editingBot?.botId === bot.botId ? (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        maxLength={32}
+                        style={{
+                          flex: 1,
+                          padding: '4px 8px',
+                          fontSize: '16px',
+                          background: 'var(--pixel-card-bg, #2a2a3a)',
+                          color: 'var(--pixel-text, #e0e0e0)',
+                          border: '2px solid var(--pixel-accent, #6366f1)',
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSaveEdit()
+                          if (e.key === 'Escape') handleCancelEdit()
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        onClick={handleSaveEdit}
+                        disabled={saving || !editName.trim()}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '12px',
+                          background: 'var(--pixel-accent, #6366f1)',
+                          color: '#fff',
+                          border: 'none',
+                          cursor: saving ? 'wait' : 'pointer',
+                          opacity: saving || !editName.trim() ? 0.6 : 1,
+                        }}
+                      >
+                        {saving ? '...' : 'Save'}
+                      </button>
+                      <button
+                        onClick={handleCancelEdit}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '12px',
+                          background: 'var(--pixel-btn-bg, #3a3a4a)',
+                          color: 'var(--pixel-text, #e0e0e0)',
+                          border: '1px solid var(--pixel-border, #4a4a5a)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => handleStartEdit(bot)}
+                      title="Click to rename"
+                      style={{
+                        fontSize: '20px',
+                        color: 'var(--pixel-text, #e0e0e0)',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {bot.name}
+                      <span style={{ marginLeft: 6, fontSize: '12px', color: 'var(--pixel-text-dim, #666)' }}>✏️</span>
+                    </div>
+                  )}
                   <div
                     style={{
                       fontSize: '11px',
@@ -261,7 +346,7 @@ export function BotManagement({ maxBots = 5, onClose }: BotManagementProps) {
                     {bot.botId}
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
                   {bot.online && (
                     <span
                       style={{
