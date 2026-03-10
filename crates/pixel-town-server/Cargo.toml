@@ -1,14 +1,14 @@
 [package]
-name = "star-office-server"
-version = "0.1.0"
+name = "pixel-town-server"
+version = "0.3.0"
 edition = "2021"
 
 [[bin]]
-name = "star-office"
+name = "claw-pixel-town"
 path = "src/main.rs"
 
 [dependencies]
-star-office-core = { path = "../star-office-core" }
+pixel-town-core = { path = "../pixel-town-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }

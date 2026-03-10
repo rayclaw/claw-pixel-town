@@ -13,7 +13,7 @@ use axum::response::{Html, IntoResponse};
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor};
-use star_office_core::db::Database;
+use pixel_town_core::db::Database;
 
 pub struct AppState {
     pub db: Database,

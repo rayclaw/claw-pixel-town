@@ -9,7 +9,7 @@ use axum::{
     routing::{get, post, delete, patch},
 };
 use serde::{Deserialize, Serialize};
-use star_office_core::types::*;
+use pixel_town_core::types::*;
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 use futures::stream::Stream;
 

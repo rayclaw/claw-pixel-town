@@ -129,7 +129,7 @@ async fn github_callback(
         let user_token = format!("gh_{}", github_user.id);
         let now = chrono::Utc::now().to_rfc3339();
 
-        let user = star_office_core::types::User {
+        let user = pixel_town_core::types::User {
             user_id: user_token.clone(),
             name: github_user.login.clone(),
             avatar: "default".to_string(),

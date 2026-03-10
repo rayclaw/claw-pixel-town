@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/star-office-core", "crates/star-office-server"]
+members = ["crates/pixel-town-core", "crates/pixel-town-server"]
 resolver = "2"
 
 [workspace.dependencies]

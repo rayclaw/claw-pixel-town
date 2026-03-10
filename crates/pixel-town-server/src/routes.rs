@@ -8,7 +8,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use star_office_core::types::*;
+use pixel_town_core::types::*;
 
 use crate::AppState;
 
@@ -316,7 +316,7 @@ async fn broadcast_state(
     check_admin_token(&headers, &state.config.security.admin_token)?;
 
     let detail = validate_detail(&body.detail);
-    let normalized = star_office_core::types::AgentState::from_str_normalized(&body.state);
+    let normalized = pixel_town_core::types::AgentState::from_str_normalized(&body.state);
     let count = state.db.broadcast_agent_state(normalized, &detail)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(serde_json::json!({ "ok": true, "updated": count })))
