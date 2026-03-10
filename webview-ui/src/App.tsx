@@ -9,6 +9,9 @@ import { isRotatable, buildDynamicCatalog } from './office/layout/furnitureCatal
 import type { LoadedAssetData } from './office/layout/furnitureCatalog.js'
 import { loadFurnitureAssets } from './office/layout/assetLoader.js'
 import { useApiPolling } from './hooks/useApiPolling.js'
+import { useChannelSSE } from './hooks/useChannelSSE.js'
+import { ActivityFeed } from './components/ActivityFeed.js'
+import { EmojiBubbles } from './components/EmojiBubbles.js'
 import { PULSE_ANIMATION_DURATION_SEC } from './constants.js'
 import { useEditorActions } from './hooks/useEditorActions.js'
 import { useEditorKeyboard } from './hooks/useEditorKeyboard.js'
@@ -175,6 +178,9 @@ function OfficeView({ channelId }: { channelId?: string }) {
   const assetsReady = loadedAssets !== undefined
   const { agents, agentInfos, layoutReady } = useApiPolling(getOfficeState, editor.setLastSavedLayout, assetsReady, channelId)
 
+  // SSE for real-time action events (emoji, etc.) - only in room view
+  const { activities, bubbles } = useChannelSSE(channelId)
+
   const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), [])
 
   const handleSelectAgent = useCallback((numericId: number) => {
@@ -273,6 +279,9 @@ function OfficeView({ channelId }: { channelId?: string }) {
         }}
       />
 
+      {/* Activity Feed for emoji actions */}
+      <ActivityFeed activities={activities} />
+
       <BottomToolbar
         isEditMode={editor.isEditMode}
         onOpenClaude={editor.handleOpenClaude}
@@ -339,6 +348,16 @@ function OfficeView({ channelId }: { channelId?: string }) {
       <AgentNameLabels
         officeState={officeState}
         agents={agents}
+        containerRef={containerRef}
+        zoom={editor.zoom}
+        panRef={editor.panRef}
+      />
+
+      {/* Emoji bubbles above characters */}
+      <EmojiBubbles
+        officeState={officeState}
+        bubbles={bubbles}
+        agentInfos={agentInfos}
         containerRef={containerRef}
         zoom={editor.zoom}
         panRef={editor.panRef}

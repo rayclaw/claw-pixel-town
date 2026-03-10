@@ -146,7 +146,10 @@ async fn github_callback(
     };
 
     // Redirect back to frontend with token in hash
-    let redirect_url = format!("/#/login-success?token={}", user_token);
+    let redirect_url = match &state.config.oauth.frontend_url {
+        Some(frontend_url) => format!("{}/#/login-success?token={}", frontend_url, user_token),
+        None => format!("/#/login-success?token={}", user_token),
+    };
     Ok(Redirect::temporary(&redirect_url))
 }
 

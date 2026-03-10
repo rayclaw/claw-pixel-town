@@ -15,7 +15,7 @@ use futures::stream::Stream;
 
 use crate::AppState;
 use crate::routes::{err, AppResult, MAX_NAME_LEN, MAX_DETAIL_LEN, sanitize_string, validate_name};
-use crate::events::ChannelEvent;
+use crate::events::{ChannelEvent, ActionType, EmojiKey};
 
 // =============================================================================
 // User Identity Helpers
@@ -54,6 +54,8 @@ pub fn channel_routes() -> Router<Arc<AppState>> {
         // Channel layout
         .route("/channels/:id/layout", get(get_channel_layout))
         .route("/channels/:id/layout", post(save_channel_layout))
+        // Agent actions (social interactions)
+        .route("/channels/:id/action", post(channel_action))
         // SSE events
         .route("/channels/:id/events", get(channel_events_sse))
         // Whitelist (private channels)
@@ -483,6 +485,92 @@ async fn push_channel(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+// =============================================================================
+// Agent Action Handler (Social Interactions)
+// =============================================================================
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ActionRequest {
+    bot_id: String,
+    #[serde(rename = "type")]
+    action_type: ActionType,
+    #[serde(default)]
+    target_bot_id: Option<String>,
+    // Emoji-specific field
+    #[serde(default)]
+    emoji: Option<EmojiKey>,
+    // Future: joke content, dance type, etc.
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActionResponse {
+    ok: bool,
+    action_type: ActionType,
+    emoji_display: Option<String>,
+}
+
+async fn channel_action(
+    State(state): State<Arc<AppState>>,
+    Path(channel_id): Path<String>,
+    Json(body): Json<ActionRequest>,
+) -> AppResult<Json<ActionResponse>> {
+    // Verify bot exists and is in this channel
+    let bot = state.db.get_bot(&body.bot_id)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "Bot not found"))?;
+
+    if bot.current_channel_id.as_ref() != Some(&channel_id) {
+        return Err(err(StatusCode::BAD_REQUEST, "Bot not in this channel"));
+    }
+
+    // Validate action-specific requirements
+    let emoji_display = match body.action_type {
+        ActionType::Emoji => {
+            let emoji_key = body.emoji
+                .ok_or_else(|| err(StatusCode::BAD_REQUEST, "emoji field required for emoji action"))?;
+            Some(emoji_key.to_emoji().to_string())
+        }
+        // Future action types can be handled here
+    };
+
+    // If targeting another bot, verify they're in the same channel
+    if let Some(ref target_id) = body.target_bot_id {
+        let target_bot = state.db.get_bot(target_id)
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or_else(|| err(StatusCode::NOT_FOUND, "Target bot not found"))?;
+
+        if target_bot.current_channel_id.as_ref() != Some(&channel_id) {
+            return Err(err(StatusCode::BAD_REQUEST, "Target bot not in this channel"));
+        }
+    }
+
+    // Emit action event to channel
+    state.events.send(&channel_id, ChannelEvent::Action {
+        action_type: body.action_type,
+        from_bot_id: body.bot_id.clone(),
+        from_name: bot.name.clone(),
+        target_bot_id: body.target_bot_id.clone(),
+        emoji: body.emoji,
+    }).await;
+
+    tracing::info!(
+        "Action {:?} from {} in channel {} (target: {:?})",
+        body.action_type, body.bot_id, channel_id, body.target_bot_id
+    );
+
+    Ok(Json(ActionResponse {
+        ok: true,
+        action_type: body.action_type,
+        emoji_display,
+    }))
+}
+
+// =============================================================================
+// Channel Member List Handler
+// =============================================================================
+
 async fn list_channel_agents(
     State(state): State<Arc<AppState>>,
     Path(channel_id): Path<String>,
@@ -595,6 +683,7 @@ async fn channel_events_sse(
                 ChannelEvent::AgentState { .. } => "agent_state",
                 ChannelEvent::LayoutUpdate { .. } => "layout_update",
                 ChannelEvent::ChannelUpdate { .. } => "channel_update",
+                ChannelEvent::Action { .. } => "action",
                 ChannelEvent::Keepalive => "keepalive",
             };
             Ok::<_, Infallible>(Event::default().event(event_type).data(json))

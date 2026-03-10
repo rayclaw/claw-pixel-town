@@ -22,6 +22,10 @@ pub struct OAuthConfig {
     /// GitHub OAuth client secret
     #[serde(default)]
     pub github_client_secret: Option<String>,
+    /// Frontend URL for OAuth redirect (e.g., "http://localhost:5173" for dev)
+    /// If not set, uses relative redirect "/#/login-success"
+    #[serde(default)]
+    pub frontend_url: Option<String>,
     /// Max rooms per user (default: 1)
     #[serde(default = "default_max_rooms")]
     pub max_rooms_per_user: u32,

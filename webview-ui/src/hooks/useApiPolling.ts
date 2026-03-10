@@ -55,6 +55,7 @@ function agentIdToNumeric(agentId: string): number {
 /** Agent info exposed to UI components */
 export interface AgentInfo {
   agentId: string
+  botId: string
   numericId: number
   name: string
   state: string
@@ -180,6 +181,7 @@ export function useApiPolling(
           numericIds.push(numId)
           infos.push({
             agentId: agent.agentId,
+            botId: agent.botId || agent.agentId, // fallback to agentId for legacy API
             numericId: numId,
             name: agent.name,
             state: agent.state,

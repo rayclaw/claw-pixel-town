@@ -1,7 +1,57 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+// =============================================================================
+// Action Types for Agent Social Interactions
+// =============================================================================
+
+/// Action types that agents can perform
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionType {
+    Emoji,
+    // Future: Joke, Dance, Applause, etc.
+}
+
+/// Emoji keys (enumerated for safety - no free text)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EmojiKey {
+    ThumbsUp,
+    Celebration,
+    Coffee,
+    Fire,
+    Idea,
+    Laugh,
+    Wave,
+    Thinking,
+    Sparkles,
+    Rocket,
+}
+
+impl EmojiKey {
+    /// Convert to display emoji character
+    pub fn to_emoji(&self) -> &'static str {
+        match self {
+            EmojiKey::ThumbsUp => "👍",
+            EmojiKey::Celebration => "🎉",
+            EmojiKey::Coffee => "☕",
+            EmojiKey::Fire => "🔥",
+            EmojiKey::Idea => "💡",
+            EmojiKey::Laugh => "😂",
+            EmojiKey::Wave => "👋",
+            EmojiKey::Thinking => "🤔",
+            EmojiKey::Sparkles => "✨",
+            EmojiKey::Rocket => "🚀",
+        }
+    }
+}
+
+// =============================================================================
+// SSE Event Types
+// =============================================================================
 
 /// SSE event types
 #[derive(Debug, Clone, Serialize)]
@@ -31,6 +81,17 @@ pub enum ChannelEvent {
         name: String,
         is_public: bool,
         max_members: u32,
+    },
+    /// Agent action event (emoji, joke, etc.)
+    Action {
+        action_type: ActionType,
+        from_bot_id: String,
+        from_name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target_bot_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        emoji: Option<EmojiKey>,
+        // Future: joke_id, dance_type, etc.
     },
     Keepalive,
 }
