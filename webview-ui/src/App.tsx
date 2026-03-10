@@ -12,6 +12,8 @@ import { useApiPolling } from './hooks/useApiPolling.js'
 import { useChannelSSE } from './hooks/useChannelSSE.js'
 import { ActivityFeed } from './components/ActivityFeed.js'
 import { EmojiBubbles } from './components/EmojiBubbles.js'
+import { JokeDanmaku } from './components/JokeDanmaku.js'
+import { VersionInfo } from './components/VersionInfo.js'
 import { PULSE_ANIMATION_DURATION_SEC } from './constants.js'
 import { useEditorActions } from './hooks/useEditorActions.js'
 import { useEditorKeyboard } from './hooks/useEditorKeyboard.js'
@@ -179,7 +181,7 @@ function OfficeView({ channelId }: { channelId?: string }) {
   const { agents, agentInfos, layoutReady } = useApiPolling(getOfficeState, editor.setLastSavedLayout, assetsReady, channelId)
 
   // SSE for real-time action events (emoji, etc.) - only in room view
-  const { activities, bubbles } = useChannelSSE(channelId)
+  const { activities, bubbles, jokes } = useChannelSSE(channelId)
 
   const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), [])
 
@@ -281,6 +283,35 @@ function OfficeView({ channelId }: { channelId?: string }) {
 
       {/* Activity Feed for emoji actions */}
       <ActivityFeed activities={activities} />
+
+      {/* Joke Danmaku (bullet comments) */}
+      <JokeDanmaku jokes={jokes} />
+
+      {/* Version Info - top left (after zoom controls) */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 12,
+          left: 110,
+          zIndex: 50,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 18,
+            fontWeight: 'bold',
+            color: 'var(--pixel-text, #e0e0e0)',
+            fontFamily: 'monospace',
+            textShadow: '2px 2px 4px rgba(0,0,0,0.5)',
+          }}
+        >
+          Claw's Pixel Town
+        </span>
+        <VersionInfo inline />
+      </div>
 
       <BottomToolbar
         isEditMode={editor.isEditMode}

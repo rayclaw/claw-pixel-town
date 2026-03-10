@@ -52,12 +52,21 @@ export interface EmojiBubble {
   duration: number // ms
 }
 
-const MAX_ACTIVITY_ITEMS = 10
+// Joke item for danmaku display
+export interface JokeItem {
+  id: string
+  content: string
+  fromName: string
+  timestamp: number
+}
+
+const MAX_ACTIVITY_ITEMS = 20
 const BUBBLE_DURATION_MS = 10000
 
 export function useChannelSSE(channelId?: string) {
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [bubbles, setBubbles] = useState<EmojiBubble[]>([])
+  const [jokes, setJokes] = useState<JokeItem[]>([])
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
 
@@ -105,6 +114,15 @@ export function useChannelSSE(channelId?: string) {
       setTimeout(() => {
         setBubbles((prev) => prev.filter((b) => b !== bubble))
       }, BUBBLE_DURATION_MS)
+
+      // Add joke for danmaku display
+      const jokeItem: JokeItem = {
+        id: item.id,
+        content: event.joke_content,
+        fromName: event.from_name,
+        timestamp: Date.now(),
+      }
+      setJokes((prev) => [jokeItem, ...prev].slice(0, 10))
     } else {
       return // Unknown action type, ignore
     }
@@ -164,7 +182,8 @@ export function useChannelSSE(channelId?: string) {
   useEffect(() => {
     setActivities([])
     setBubbles([])
+    setJokes([])
   }, [channelId])
 
-  return { activities, bubbles }
+  return { activities, bubbles, jokes }
 }

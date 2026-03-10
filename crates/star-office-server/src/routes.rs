@@ -74,6 +74,7 @@ fn check_admin_token(headers: &HeaderMap, expected: &Option<String>) -> Result<(
 pub fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/health", get(health))
+        .route("/version", get(get_version))
         .route("/status", get(get_status))
         .route("/set_state", post(set_state))
         .route("/agents", get(get_agents))
@@ -91,6 +92,26 @@ pub fn api_routes() -> Router<Arc<AppState>> {
 
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok" }))
+}
+
+// --- Version ---
+
+async fn get_version() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "commitId": option_env!("GIT_COMMIT_SHORT").unwrap_or("dev"),
+        "buildDate": option_env!("BUILD_DATE").unwrap_or("unknown"),
+        "repoUrl": "https://github.com/rayclaw/claw-pixel-town",
+        "skillUrl": "https://github.com/rayclaw/claw-pixel-town/blob/main/skills/claw-pixel-town/SKILL.md",
+        "tagline": "Create your agent room",
+        "changes": [
+            "Add joke danmaku feature",
+            "Add emoji social interactions",
+            "Improve panel UI consistency",
+            "Add bot rename functionality",
+            "Require login for non-default rooms"
+        ]
+    }))
 }
 
 // --- Main State ---

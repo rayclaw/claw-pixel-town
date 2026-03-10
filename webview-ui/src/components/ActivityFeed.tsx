@@ -9,14 +9,15 @@ export function ActivityFeed({ activities }: ActivityFeedProps) {
 
   return (
     <div
+      className="activity-feed-container"
       style={{
         position: 'absolute',
         bottom: 60,
         right: 12,
         width: 280,
-        maxHeight: 200,
+        maxHeight: 280,
         zIndex: 50,
-        pointerEvents: 'none',
+        pointerEvents: 'auto',
         background: 'rgba(20, 20, 30, 0.85)',
         borderRadius: 8,
         border: '1px solid rgba(255, 255, 255, 0.15)',
@@ -40,12 +41,13 @@ export function ActivityFeed({ activities }: ActivityFeedProps) {
       </div>
       {/* Messages container */}
       <div
+        className="activity-feed-messages"
         style={{
           padding: 8,
           display: 'flex',
           flexDirection: 'column',
           gap: 6,
-          maxHeight: 160,
+          maxHeight: 240,
           overflowY: 'auto',
         }}
       >
@@ -104,6 +106,20 @@ export function ActivityFeed({ activities }: ActivityFeedProps) {
         @keyframes activity-fade-in {
           from { opacity: 0; transform: translateY(8px); }
           to { opacity: 1; transform: translateY(0); }
+        }
+        .activity-feed-messages::-webkit-scrollbar {
+          width: 6px;
+        }
+        .activity-feed-messages::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 3px;
+        }
+        .activity-feed-messages::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 3px;
+        }
+        .activity-feed-messages::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.3);
         }
       `}</style>
     </div>
