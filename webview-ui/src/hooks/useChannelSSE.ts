@@ -5,22 +5,27 @@ const API_BASE = import.meta.env.VITE_API_URL || ''
 // Action event from SSE
 export interface ActionEvent {
   type: 'action'
-  action_type: 'emoji'
+  action_type: 'emoji' | 'joke'
   from_bot_id: string
   from_name: string
   target_bot_id?: string
   emoji?: string
+  joke_content?: string
 }
 
 // Activity feed item for display
 export interface ActivityItem {
   id: string
   timestamp: number
+  actionType: 'emoji' | 'joke'
   fromName: string
   fromBotId: string
   targetBotId?: string
-  emoji: string
-  emojiDisplay: string
+  // Emoji fields
+  emoji?: string
+  emojiDisplay?: string
+  // Joke fields
+  jokeContent?: string
 }
 
 // Emoji key to display character mapping
@@ -58,37 +63,53 @@ export function useChannelSSE(channelId?: string) {
 
   // Add new activity item
   const addActivity = useCallback((event: ActionEvent) => {
-    if (event.action_type !== 'emoji' || !event.emoji) return
-
-    const emojiDisplay = EMOJI_MAP[event.emoji] || event.emoji
-
     const item: ActivityItem = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: Date.now(),
+      actionType: event.action_type,
       fromName: event.from_name,
       fromBotId: event.from_bot_id,
       targetBotId: event.target_bot_id,
-      emoji: event.emoji,
-      emojiDisplay,
+    }
+
+    if (event.action_type === 'emoji' && event.emoji) {
+      const emojiDisplay = EMOJI_MAP[event.emoji] || event.emoji
+      item.emoji = event.emoji
+      item.emojiDisplay = emojiDisplay
+
+      // Add emoji bubble for head display
+      const bubble: EmojiBubble = {
+        botId: event.from_bot_id,
+        emoji: event.emoji,
+        emojiDisplay,
+        targetBotId: event.target_bot_id,
+        startTime: Date.now(),
+        duration: BUBBLE_DURATION_MS,
+      }
+      setBubbles((prev) => [...prev, bubble])
+      setTimeout(() => {
+        setBubbles((prev) => prev.filter((b) => b !== bubble))
+      }, BUBBLE_DURATION_MS)
+    } else if (event.action_type === 'joke' && event.joke_content) {
+      item.jokeContent = event.joke_content
+
+      // Add joke bubble (theater mask) for head display
+      const bubble: EmojiBubble = {
+        botId: event.from_bot_id,
+        emoji: 'joke',
+        emojiDisplay: '🎭',
+        startTime: Date.now(),
+        duration: BUBBLE_DURATION_MS,
+      }
+      setBubbles((prev) => [...prev, bubble])
+      setTimeout(() => {
+        setBubbles((prev) => prev.filter((b) => b !== bubble))
+      }, BUBBLE_DURATION_MS)
+    } else {
+      return // Unknown action type, ignore
     }
 
     setActivities((prev) => [item, ...prev].slice(0, MAX_ACTIVITY_ITEMS))
-
-    // Add bubble for head display
-    const bubble: EmojiBubble = {
-      botId: event.from_bot_id,
-      emoji: event.emoji,
-      emojiDisplay,
-      targetBotId: event.target_bot_id,
-      startTime: Date.now(),
-      duration: BUBBLE_DURATION_MS,
-    }
-    setBubbles((prev) => [...prev, bubble])
-
-    // Remove bubble after duration
-    setTimeout(() => {
-      setBubbles((prev) => prev.filter((b) => b !== bubble))
-    }, BUBBLE_DURATION_MS)
   }, [])
 
   // Connect to SSE

@@ -500,8 +500,12 @@ struct ActionRequest {
     // Emoji-specific field
     #[serde(default)]
     emoji: Option<EmojiKey>,
-    // Future: joke content, dance type, etc.
+    // Joke-specific field
+    #[serde(default)]
+    content: Option<String>,
 }
+
+const MAX_JOKE_LENGTH: usize = 150;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -526,13 +530,27 @@ async fn channel_action(
     }
 
     // Validate action-specific requirements
-    let emoji_display = match body.action_type {
+    let (emoji_display, joke_content) = match body.action_type {
         ActionType::Emoji => {
             let emoji_key = body.emoji
                 .ok_or_else(|| err(StatusCode::BAD_REQUEST, "emoji field required for emoji action"))?;
-            Some(emoji_key.to_emoji().to_string())
+            (Some(emoji_key.to_emoji().to_string()), None)
         }
-        // Future action types can be handled here
+        ActionType::Joke => {
+            let content = body.content
+                .ok_or_else(|| err(StatusCode::BAD_REQUEST, "content field required for joke action"))?;
+            // Validate joke length
+            if content.len() > MAX_JOKE_LENGTH {
+                return Err(err(StatusCode::BAD_REQUEST, format!("Joke too long (max {} chars)", MAX_JOKE_LENGTH)));
+            }
+            // Basic content filter - no code blocks
+            if content.contains("```") || content.contains("<script") {
+                return Err(err(StatusCode::BAD_REQUEST, "Invalid content"));
+            }
+            // Sanitize: trim and limit
+            let sanitized = content.trim().chars().take(MAX_JOKE_LENGTH).collect::<String>();
+            (None, Some(sanitized))
+        }
     };
 
     // If targeting another bot, verify they're in the same channel
@@ -553,6 +571,7 @@ async fn channel_action(
         from_name: bot.name.clone(),
         target_bot_id: body.target_bot_id.clone(),
         emoji: body.emoji,
+        joke_content,
     }).await;
 
     tracing::info!(

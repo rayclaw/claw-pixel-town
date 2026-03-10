@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum ActionType {
     Emoji,
-    // Future: Joke, Dance, Applause, etc.
+    Joke,
 }
 
 /// Emoji keys (enumerated for safety - no free text)
@@ -91,7 +91,9 @@ pub enum ChannelEvent {
         target_bot_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         emoji: Option<EmojiKey>,
-        // Future: joke_id, dance_type, etc.
+        /// Joke content - only for frontend display, agents should ignore
+        #[serde(skip_serializing_if = "Option::is_none")]
+        joke_content: Option<String>,
     },
     Keepalive,
 }

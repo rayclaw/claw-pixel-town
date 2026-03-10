@@ -30,14 +30,14 @@ export function AgentPanel({ agentInfos, onSelectAgent, selectedAgentId }: Agent
       <div style={{
         position: 'absolute',
         top: 56,
-        right: 8,
+        right: 12,
         zIndex: 50,
-        background: 'rgba(10, 10, 20, 0.85)',
-        border: '2px solid #2a2a3e',
-        borderRadius: 0,
+        background: 'rgba(20, 20, 30, 0.85)',
+        border: '1px solid rgba(255, 255, 255, 0.15)',
+        borderRadius: 8,
         padding: '8px 12px',
-        minWidth: 200,
-        boxShadow: '2px 2px 0px #0a0a14',
+        width: 280,
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
       }}>
         <div style={{ fontSize: '14px', color: '#6b7280', fontFamily: 'monospace' }}>
           No agents online
@@ -53,26 +53,25 @@ export function AgentPanel({ agentInfos, onSelectAgent, selectedAgentId }: Agent
     <div style={{
       position: 'absolute',
       top: 56,
-      right: 8,
+      right: 12,
       zIndex: 50,
-      background: 'rgba(10, 10, 20, 0.85)',
-      border: '2px solid #2a2a3e',
-      borderRadius: 0,
+      background: 'rgba(20, 20, 30, 0.85)',
+      border: '1px solid rgba(255, 255, 255, 0.15)',
+      borderRadius: 8,
       padding: '6px 0',
-      minWidth: 220,
-      maxWidth: 300,
+      width: 280,
       maxHeight: 'calc(100vh - 100px)',
       overflowY: 'auto',
-      boxShadow: '2px 2px 0px #0a0a14',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
     }}>
       <div style={{
-        padding: '2px 10px 6px',
+        padding: '6px 10px',
         fontSize: '11px',
-        color: '#6b7280',
+        color: 'rgba(255, 255, 255, 0.5)',
         fontFamily: 'monospace',
-        borderBottom: '1px solid #2a2a3e',
+        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
         marginBottom: 4,
-        letterSpacing: '0.05em',
+        letterSpacing: 1,
         textTransform: 'uppercase',
       }}>
         Agents Online ({agentInfos.length})
