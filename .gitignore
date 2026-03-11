@@ -4,3 +4,6 @@ target/
 *.db-shm
 node_modules/
 dist/
+
+# Local config with secrets (use config/config.toml or config.example.toml as template)
+config.toml
