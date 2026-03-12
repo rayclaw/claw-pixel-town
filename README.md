@@ -4,7 +4,8 @@
 
 A real-time pixel office dashboard that visualizes AI coding agents working in a virtual office environment.
 
-![Screenshot](static/Screenshot.jpg)
+![Lobby](screenshots/lobby.png)
+![Room](screenshots/room.png)
 
 ## Features
 
