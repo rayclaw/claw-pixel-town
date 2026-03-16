@@ -275,17 +275,28 @@ pub struct ChannelMember {
 }
 
 /// Channel member public view (for agent list)
+/// Uses alias instead of real botId for privacy
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelMemberView {
     pub agent_id: String,
-    pub bot_id: String,
+    pub bot_id: String,  // This is actually the alias, not real botId
     pub name: String,
     pub avatar: String,
     pub state: AgentState,
     pub detail: String,
     pub area: Area,
     pub online: bool,
+}
+
+/// Bot alias for privacy protection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BotAlias {
+    pub channel_id: String,
+    pub bot_id: String,
+    pub alias: String,
+    pub created_at: String,
 }
 
 /// Lobby statistics
@@ -297,4 +308,288 @@ pub struct LobbyStats {
     pub most_active_channel_id: Option<String>,
     pub most_active_channel_name: Option<String>,
     pub most_active_online_count: u32,
+}
+
+// =============================================================================
+// Game System Types
+// =============================================================================
+
+/// Game type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GameType {
+    Rps,        // Rock-Paper-Scissors
+    Werewolf,   // Social deduction (future)
+    Poker,      // Texas Hold'em (future)
+    Riddle,     // Turtle soup / 24-point (future)
+}
+
+impl std::fmt::Display for GameType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GameType::Rps => f.write_str("rps"),
+            GameType::Werewolf => f.write_str("werewolf"),
+            GameType::Poker => f.write_str("poker"),
+            GameType::Riddle => f.write_str("riddle"),
+        }
+    }
+}
+
+impl GameType {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "rps" | "rock_paper_scissors" => Some(GameType::Rps),
+            "werewolf" => Some(GameType::Werewolf),
+            "poker" => Some(GameType::Poker),
+            "riddle" => Some(GameType::Riddle),
+            _ => None,
+        }
+    }
+}
+
+/// Game status
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GameStatus {
+    Waiting,    // Waiting for players
+    Playing,    // Game in progress
+    Finished,   // Game completed
+    Cancelled,  // Game cancelled
+}
+
+impl std::fmt::Display for GameStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GameStatus::Waiting => f.write_str("waiting"),
+            GameStatus::Playing => f.write_str("playing"),
+            GameStatus::Finished => f.write_str("finished"),
+            GameStatus::Cancelled => f.write_str("cancelled"),
+        }
+    }
+}
+
+impl GameStatus {
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "waiting" => GameStatus::Waiting,
+            "playing" => GameStatus::Playing,
+            "finished" => GameStatus::Finished,
+            "cancelled" => GameStatus::Cancelled,
+            _ => GameStatus::Waiting,
+        }
+    }
+}
+
+/// Game instance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Game {
+    pub game_id: String,
+    pub channel_id: String,
+    pub game_type: GameType,
+    pub status: GameStatus,
+    pub config: serde_json::Value,      // Game-specific config
+    pub state: serde_json::Value,       // Game state (server-side full view)
+    pub turn_id: u32,
+    pub current_phase: String,
+    pub phase_started_at: String,       // When current phase started (for timeout)
+    pub winner_bot_id: Option<String>,
+    pub created_by: String,
+    pub created_at: String,
+    pub finished_at: Option<String>,
+}
+
+/// Game player record
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GamePlayer {
+    pub game_id: String,
+    pub bot_id: String,
+    pub seat_order: u32,
+    pub role: String,
+    pub private_state: serde_json::Value,
+    pub public_state: serde_json::Value,
+    pub score: i32,
+    pub is_alive: bool,
+    pub joined_at: String,
+}
+
+/// Game player public view (no private info)
+/// Uses alias instead of real botId for privacy
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GamePlayerPublicView {
+    pub bot_id: String,  // This is actually the alias, not real botId
+    pub bot_name: String,
+    pub seat_order: u32,
+    pub public_state: serde_json::Value,
+    pub score: i32,
+    pub is_alive: bool,
+}
+
+/// Sync response - filtered view for specific bot
+/// All botId fields use aliases for privacy
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameSyncView {
+    pub game_id: String,
+    pub game_type: GameType,
+    pub status: GameStatus,
+    pub turn_id: u32,
+    pub current_phase: String,
+    pub my_role: String,
+    pub my_private_state: serde_json::Value,
+    pub my_public_state: serde_json::Value,
+    pub players: Vec<GamePlayerPublicView>,
+    pub public_state: serde_json::Value,
+    pub available_actions: Vec<String>,
+    pub winner_bot_id: Option<String>,  // Uses alias, not real botId
+}
+
+/// Leaderboard entry for a player
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeaderboardEntry {
+    pub bot_id: String,      // Uses alias for privacy
+    pub bot_name: String,
+    pub wins: u32,
+    pub rank: u32,
+}
+
+/// Leaderboard for a specific game type in a channel
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameLeaderboard {
+    pub game_type: GameType,
+    pub game_name: String,   // Display name like "Rock Paper Scissors"
+    pub entries: Vec<LeaderboardEntry>,
+}
+
+/// Game action record (for history/audit)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameAction {
+    pub action_id: i64,
+    pub game_id: String,
+    pub turn_id: u32,
+    pub bot_id: String,
+    pub action_type: String,
+    pub action_data: serde_json::Value,
+    pub result: serde_json::Value,
+    pub created_at: String,
+}
+
+// =============================================================================
+// RPS (Rock-Paper-Scissors) Specific Types
+// =============================================================================
+
+/// RPS choice
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RpsChoice {
+    Rock,
+    Paper,
+    Scissors,
+}
+
+impl std::fmt::Display for RpsChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RpsChoice::Rock => f.write_str("rock"),
+            RpsChoice::Paper => f.write_str("paper"),
+            RpsChoice::Scissors => f.write_str("scissors"),
+        }
+    }
+}
+
+impl RpsChoice {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "rock" => Some(RpsChoice::Rock),
+            "paper" => Some(RpsChoice::Paper),
+            "scissors" => Some(RpsChoice::Scissors),
+            _ => None,
+        }
+    }
+
+    /// Returns true if self beats other
+    pub fn beats(&self, other: RpsChoice) -> bool {
+        matches!(
+            (self, other),
+            (RpsChoice::Rock, RpsChoice::Scissors) |
+            (RpsChoice::Paper, RpsChoice::Rock) |
+            (RpsChoice::Scissors, RpsChoice::Paper)
+        )
+    }
+}
+
+/// RPS game phase
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RpsPhase {
+    Waiting,    // Waiting for players
+    Choosing,   // Players making choices
+    Reveal,     // Show results
+    Finished,   // Game over
+}
+
+impl std::fmt::Display for RpsPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RpsPhase::Waiting => f.write_str("waiting"),
+            RpsPhase::Choosing => f.write_str("choosing"),
+            RpsPhase::Reveal => f.write_str("reveal"),
+            RpsPhase::Finished => f.write_str("finished"),
+        }
+    }
+}
+
+/// RPS game configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpsConfig {
+    pub rounds: u32,           // Best of N rounds (1, 3, or 5)
+    pub timeout_secs: u32,     // Timeout per round
+}
+
+impl Default for RpsConfig {
+    fn default() -> Self {
+        RpsConfig {
+            rounds: 3,
+            timeout_secs: 30,
+        }
+    }
+}
+
+/// RPS game state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpsState {
+    pub current_round: u32,
+    pub phase: RpsPhase,
+    pub choices: std::collections::HashMap<String, RpsChoice>,  // bot_id -> choice
+    pub round_results: Vec<RpsRoundResult>,
+}
+
+impl Default for RpsState {
+    fn default() -> Self {
+        RpsState {
+            current_round: 1,
+            phase: RpsPhase::Waiting,
+            choices: std::collections::HashMap::new(),
+            round_results: vec![],
+        }
+    }
+}
+
+/// RPS round result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpsRoundResult {
+    pub round: u32,
+    pub player1_bot_id: String,
+    pub player1_choice: RpsChoice,
+    pub player2_bot_id: String,
+    pub player2_choice: RpsChoice,
+    pub winner_bot_id: Option<String>,  // None = draw
 }

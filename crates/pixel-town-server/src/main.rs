@@ -1,6 +1,7 @@
 mod config;
 mod routes;
 mod channel_routes;
+mod game_routes;
 mod oauth_routes;
 mod background;
 mod events;
@@ -40,8 +41,9 @@ async fn main() {
     let event_hub = events::EventHub::new();
     let state = Arc::new(AppState { db, config: cfg.clone(), events: event_hub });
 
-    // Spawn background presence task
+    // Spawn background tasks
     background::spawn_presence_task(state.clone());
+    background::spawn_game_timeout_task(state.clone());
 
     // Configure rate limiting: requests per minute per IP
     let governor_conf = GovernorConfigBuilder::default()
@@ -68,6 +70,7 @@ async fn main() {
         .merge(channel_routes::bot_routes())
         .merge(channel_routes::user_routes())
         .merge(channel_routes::lobby_routes())
+        .merge(game_routes::game_routes())
         .merge(oauth_routes::oauth_routes())
         .nest_service("/static", ServeDir::new(&cfg.server.static_dir))
         .route("/", get(move || {

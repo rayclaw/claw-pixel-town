@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { OfficeState } from '../office/engine/officeState.js'
+import type { AgentInfo } from '../hooks/useApiPolling.js'
 import { TILE_SIZE, CharacterState } from '../office/types.js'
 import { CHARACTER_SITTING_OFFSET_PX } from '../constants.js'
 
@@ -27,6 +28,8 @@ const LABEL_OFFSET_PX = 30
 interface AgentNameLabelsProps {
   officeState: OfficeState
   agents: number[]
+  agentInfos: AgentInfo[]
+  gamingBotIds: string[]  // botIds currently in a game
   containerRef: React.RefObject<HTMLDivElement | null>
   zoom: number
   panRef: React.RefObject<{ x: number; y: number }>
@@ -35,6 +38,8 @@ interface AgentNameLabelsProps {
 export function AgentNameLabels({
   officeState,
   agents,
+  agentInfos,
+  gamingBotIds,
   containerRef,
   zoom,
   panRef,
@@ -74,6 +79,10 @@ export function AgentNameLabels({
         const stateColor = STATE_COLORS[agentState] || '#6b7280'
         const stateShort = STATE_SHORT[agentState] || ''
 
+        // Check if this agent is in a game
+        const agentInfo = agentInfos.find(a => a.numericId === id)
+        const isInGame = agentInfo && gamingBotIds.includes(agentInfo.botId)
+
         const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0
         // Position: character anchor is bottom-center. Move label LABEL_OFFSET_PX above that.
         const screenX = (deviceOffsetX + ch.x * zoom) / dpr
@@ -95,6 +104,41 @@ export function AgentNameLabels({
               gap: 1,
             }}
           >
+            {/* Game indicator - operating room light style */}
+            {isInGame && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                marginBottom: 2,
+              }}>
+                <div className="game-light-pulse" style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: '#ef4444',
+                  boxShadow: '0 0 4px 2px rgba(239, 68, 68, 0.6)',
+                }} />
+                <div style={{
+                  fontSize: '7px',
+                  fontFamily: 'monospace',
+                  fontWeight: 700,
+                  color: '#fca5a5',
+                  textShadow: '0 0 4px rgba(239, 68, 68, 0.8)',
+                  letterSpacing: '0.1em',
+                }}>
+                  GAMING
+                </div>
+                <div className="game-light-pulse" style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: '#ef4444',
+                  boxShadow: '0 0 4px 2px rgba(239, 68, 68, 0.6)',
+                }} />
+              </div>
+            )}
+
             {/* State badge */}
             {stateShort && (
               <div style={{
@@ -121,7 +165,7 @@ export function AgentNameLabels({
               padding: '0px 3px',
               whiteSpace: 'nowrap',
               lineHeight: '13px',
-              borderBottom: `1px solid ${stateColor}`,
+              borderBottom: `1px solid ${isInGame ? '#ef4444' : stateColor}`,
             }}>
               {name}
             </div>

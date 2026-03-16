@@ -95,6 +95,46 @@ pub enum ChannelEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         joke_content: Option<String>,
     },
+    /// Game created in channel
+    GameCreated {
+        game_id: String,
+        game_type: String,
+        created_by_bot_id: String,
+        created_by_name: String,
+    },
+    /// Player joined game
+    GamePlayerJoined {
+        game_id: String,
+        bot_id: String,
+        bot_name: String,
+        player_count: u32,
+    },
+    /// Game started
+    GameStarted {
+        game_id: String,
+        player_count: u32,
+    },
+    /// Game state update (public info only - agents should poll /sync for full state)
+    GameUpdate {
+        game_id: String,
+        turn_id: u32,
+        phase: String,
+        summary: String,
+    },
+    /// Game finished
+    GameFinished {
+        game_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        winner_bot_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        winner_name: Option<String>,
+        results: serde_json::Value,
+    },
+    /// Game cancelled
+    GameCancelled {
+        game_id: String,
+        reason: String,
+    },
     Keepalive,
 }
 

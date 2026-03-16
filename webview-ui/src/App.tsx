@@ -26,6 +26,8 @@ import { LobbyView } from './lobby/index.js'
 import { ChannelSettingsModal } from './components/ChannelSettingsModal.js'
 import { fetchChannel, type ApiChannel } from './hooks/useChannelApi.js'
 import { useAuth } from './hooks/useAuth.js'
+import { GameOverlay } from './components/games/index.js'
+import { useActiveGame, useGameState } from './hooks/useGameApi.js'
 
 /** Simple hash-based router */
 function useHashRoute(): { view: 'lobby' | 'channel'; channelId: string | null } {
@@ -181,7 +183,7 @@ function OfficeView({ channelId }: { channelId?: string }) {
   const { agents, agentInfos, layoutReady } = useApiPolling(getOfficeState, editor.setLastSavedLayout, assetsReady, channelId)
 
   // SSE for real-time action events (emoji, etc.) - only in room view
-  const { activities, bubbles, jokes } = useChannelSSE(channelId)
+  const { activities, bubbles, jokes, lastGameEvent } = useChannelSSE(channelId)
 
   const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), [])
 
@@ -218,6 +220,46 @@ function OfficeView({ channelId }: { channelId?: string }) {
 
   const officeState = getOfficeState()
 
+  // Get selected bot for game overlay
+  const selectedBotId = officeState.selectedAgentId !== null
+    ? agentInfos.find((a) => a.numericId === officeState.selectedAgentId)?.botId ?? null
+    : null
+  const selectedBotName = officeState.selectedAgentId !== null
+    ? agentInfos.find((a) => a.numericId === officeState.selectedAgentId)?.name
+    : undefined
+
+  // Track bots currently in an active game (for visual indicator)
+  const { activeGame, refresh: refreshActiveGame } = useActiveGame(channelId ?? null)
+  const activeGameId = activeGame && (activeGame.status === 'waiting' || activeGame.status === 'playing')
+    ? activeGame.gameId
+    : null
+  const { gameState } = useGameState(activeGameId, selectedBotId)
+
+  // Refresh active game when game events arrive
+  useEffect(() => {
+    if (lastGameEvent) {
+      refreshActiveGame()
+    }
+  }, [lastGameEvent, refreshActiveGame])
+
+  // Get botIds of players in the active game (only when game is actually playing)
+  // Require both: activeGameId exists AND gameState shows 'playing' status
+  const gamingBotIds = (activeGameId && gameState?.status === 'playing')
+    ? gameState.players.map(p => p.botId)
+    : []
+
+  // Debug: log game state
+  useEffect(() => {
+    if (activeGame || gameState) {
+      console.log('[Game Debug]', {
+        activeGame: activeGame ? { id: activeGame.gameId, status: activeGame.status } : null,
+        gameState: gameState ? { players: gameState.players.map(p => p.botId), phase: gameState.currentPhase } : null,
+        gamingBotIds,
+        agentBotIds: agentInfos.map(a => a.botId),
+      })
+    }
+  }, [activeGame, gameState, gamingBotIds, agentInfos])
+
   // Force dependency on editorTickForKeyboard to propagate keyboard-triggered re-renders
   void editorTickForKeyboard
 
@@ -249,6 +291,11 @@ function OfficeView({ channelId }: { channelId?: string }) {
           50% { opacity: 0.3; }
         }
         .pixel-agents-pulse { animation: pixel-agents-pulse ${PULSE_ANIMATION_DURATION_SEC}s ease-in-out infinite; }
+        @keyframes game-light-pulse {
+          0%, 100% { opacity: 1; box-shadow: 0 0 4px 2px rgba(239, 68, 68, 0.6); }
+          50% { opacity: 0.5; box-shadow: 0 0 8px 4px rgba(239, 68, 68, 0.9); }
+        }
+        .game-light-pulse { animation: game-light-pulse 1s ease-in-out infinite; }
       `}</style>
 
       <OfficeCanvas
@@ -379,6 +426,8 @@ function OfficeView({ channelId }: { channelId?: string }) {
       <AgentNameLabels
         officeState={officeState}
         agents={agents}
+        agentInfos={agentInfos}
+        gamingBotIds={gamingBotIds}
         containerRef={containerRef}
         zoom={editor.zoom}
         panRef={editor.panRef}
@@ -420,6 +469,16 @@ function OfficeView({ channelId }: { channelId?: string }) {
           agentStatuses={{}}
           subagentTools={{}}
           onSelectAgent={handleSelectAgent}
+        />
+      )}
+
+      {/* Game overlay */}
+      {channelId && (
+        <GameOverlay
+          channelId={channelId}
+          botId={selectedBotId}
+          botName={selectedBotName}
+          lastGameEvent={lastGameEvent}
         />
       )}
     </div>

@@ -24,6 +24,10 @@ export default defineConfig(({ mode }) => ({
       '/user': 'http://localhost:3800',
       '/lobby': 'http://localhost:3800',
       '/auth': 'http://localhost:3800',
+      '/games': 'http://localhost:3800',
+      '/version': 'http://localhost:3800',
+      '/assets': 'http://localhost:3800',
+      '/static/assets': 'http://localhost:3800',
     },
   },
 }))

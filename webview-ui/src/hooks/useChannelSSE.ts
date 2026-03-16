@@ -13,6 +13,59 @@ export interface ActionEvent {
   joke_content?: string
 }
 
+// Game events from SSE
+export interface GameCreatedEvent {
+  type: 'game_created'
+  game_id: string
+  game_type: string
+  created_by_bot_id: string
+  created_by_name: string
+}
+
+export interface GamePlayerJoinedEvent {
+  type: 'game_player_joined'
+  game_id: string
+  bot_id: string
+  bot_name: string
+  player_count: number
+}
+
+export interface GameStartedEvent {
+  type: 'game_started'
+  game_id: string
+  player_count: number
+}
+
+export interface GameUpdateEvent {
+  type: 'game_update'
+  game_id: string
+  turn_id: number
+  phase: string
+  summary: string
+}
+
+export interface GameFinishedEvent {
+  type: 'game_finished'
+  game_id: string
+  winner_bot_id?: string
+  winner_name?: string
+  results: Record<string, unknown>
+}
+
+export interface GameCancelledEvent {
+  type: 'game_cancelled'
+  game_id: string
+  reason: string
+}
+
+export type GameEvent =
+  | GameCreatedEvent
+  | GamePlayerJoinedEvent
+  | GameStartedEvent
+  | GameUpdateEvent
+  | GameFinishedEvent
+  | GameCancelledEvent
+
 // Activity feed item for display
 export interface ActivityItem {
   id: string
@@ -63,12 +116,15 @@ export interface JokeItem {
 const MAX_ACTIVITY_ITEMS = 20
 const BUBBLE_DURATION_MS = 10000
 
-export function useChannelSSE(channelId?: string) {
+export function useChannelSSE(channelId?: string, onGameEvent?: (event: GameEvent) => void) {
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [bubbles, setBubbles] = useState<EmojiBubble[]>([])
   const [jokes, setJokes] = useState<JokeItem[]>([])
+  const [lastGameEvent, setLastGameEvent] = useState<GameEvent | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
+  const onGameEventRef = useRef(onGameEvent)
+  onGameEventRef.current = onGameEvent
 
   // Add new activity item
   const addActivity = useCallback((event: ActionEvent) => {
@@ -151,6 +207,28 @@ export function useChannelSSE(channelId?: string) {
         }
       })
 
+      // Game event listeners
+      const gameEventTypes = [
+        'game_created',
+        'game_player_joined',
+        'game_started',
+        'game_update',
+        'game_finished',
+        'game_cancelled',
+      ]
+      gameEventTypes.forEach((eventType) => {
+        es.addEventListener(eventType, (e) => {
+          try {
+            const data = JSON.parse(e.data) as GameEvent
+            console.log(`[SSE] Game event (${eventType}):`, data)
+            setLastGameEvent(data)
+            onGameEventRef.current?.(data)
+          } catch (err) {
+            console.error(`[SSE] Failed to parse ${eventType} event:`, err)
+          }
+        })
+      })
+
       es.onerror = () => {
         console.log('[SSE] Connection error, will reconnect...')
         es.close()
@@ -183,7 +261,8 @@ export function useChannelSSE(channelId?: string) {
     setActivities([])
     setBubbles([])
     setJokes([])
+    setLastGameEvent(null)
   }, [channelId])
 
-  return { activities, bubbles, jokes }
+  return { activities, bubbles, jokes, lastGameEvent }
 }

@@ -381,10 +381,14 @@ async fn join_channel(
     state.db.update_bot_channel(&body.bot_id, Some(&channel_id), Some(&agent_id))
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Emit agent join event
+    // Create or get bot alias for privacy protection
+    let bot_alias = state.db.get_or_create_bot_alias(&channel_id, &body.bot_id)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Emit agent join event (with alias, not real botId)
     state.events.send(&channel_id, ChannelEvent::AgentJoin {
         agent_id: agent_id.clone(),
-        bot_id: body.bot_id.clone(),
+        bot_id: bot_alias, // Use alias instead of real botId
         name: bot.name.clone(),
         avatar: bot.avatar.clone(),
     }).await;
@@ -418,8 +422,11 @@ async fn leave_channel(
         return Err(err(StatusCode::BAD_REQUEST, "Bot not in this channel"));
     }
 
-    // Get agent_id before removing
+    // Get agent_id and alias before removing
     let agent_id = bot.current_agent_id.clone().unwrap_or_default();
+    let bot_alias = state.db.get_bot_alias(&channel_id, &body.bot_id)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .unwrap_or_else(|| body.bot_id.clone()); // Fallback to real id if no alias
 
     // Remove from channel_members
     state.db.remove_channel_member(&channel_id, &body.bot_id)
@@ -429,10 +436,13 @@ async fn leave_channel(
     state.db.update_bot_channel(&body.bot_id, None, None)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Emit agent leave event
+    // Optionally remove alias (keep it for now for game history)
+    // state.db.remove_bot_alias(&channel_id, &body.bot_id)?;
+
+    // Emit agent leave event (with alias, not real botId)
     state.events.send(&channel_id, ChannelEvent::AgentLeave {
         agent_id,
-        bot_id: body.bot_id.clone(),
+        bot_id: bot_alias,
     }).await;
 
     tracing::info!("Bot {} left channel {}", body.bot_id, channel_id);
@@ -472,11 +482,16 @@ async fn push_channel(
     state.db.update_channel_member_state(&channel_id, &body.bot_id, agent_state.clone(), &detail)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Emit agent state event
+    // Get alias for event
+    let bot_alias = state.db.get_bot_alias(&channel_id, &body.bot_id)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .unwrap_or_else(|| body.bot_id.clone());
+
+    // Emit agent state event (with alias, not real botId)
     let agent_id = bot.current_agent_id.clone().unwrap_or_default();
     state.events.send(&channel_id, ChannelEvent::AgentState {
         agent_id,
-        bot_id: body.bot_id.clone(),
+        bot_id: bot_alias,
         state: agent_state.to_string(),
         detail: detail.clone(),
         area: "breakroom".to_string(), // Default area
@@ -553,8 +568,13 @@ async fn channel_action(
         }
     };
 
-    // If targeting another bot, verify they're in the same channel
-    if let Some(ref target_id) = body.target_bot_id {
+    // Get alias for from_bot
+    let from_alias = state.db.get_bot_alias(&channel_id, &body.bot_id)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .unwrap_or_else(|| body.bot_id.clone());
+
+    // If targeting another bot, verify they're in the same channel and get their alias
+    let target_alias = if let Some(ref target_id) = body.target_bot_id {
         let target_bot = state.db.get_bot(target_id)
             .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
             .ok_or_else(|| err(StatusCode::NOT_FOUND, "Target bot not found"))?;
@@ -562,14 +582,20 @@ async fn channel_action(
         if target_bot.current_channel_id.as_ref() != Some(&channel_id) {
             return Err(err(StatusCode::BAD_REQUEST, "Target bot not in this channel"));
         }
-    }
 
-    // Emit action event to channel
+        Some(state.db.get_bot_alias(&channel_id, target_id)
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .unwrap_or_else(|| target_id.clone()))
+    } else {
+        None
+    };
+
+    // Emit action event to channel (with aliases, not real botIds)
     state.events.send(&channel_id, ChannelEvent::Action {
         action_type: body.action_type,
-        from_bot_id: body.bot_id.clone(),
+        from_bot_id: from_alias,
         from_name: bot.name.clone(),
-        target_bot_id: body.target_bot_id.clone(),
+        target_bot_id: target_alias,
         emoji: body.emoji,
         joke_content,
     }).await;
@@ -602,13 +628,22 @@ async fn list_channel_agents(
     let members = state.db.get_online_channel_members(&channel_id)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Enrich with bot info
+    // Get all aliases for this channel (bulk lookup for efficiency)
+    let aliases = state.db.get_channel_aliases(&channel_id)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Enrich with bot info, using aliases for privacy
     let mut views = Vec::with_capacity(members.len());
     for m in members {
         if let Ok(Some(bot)) = state.db.get_bot(&m.bot_id) {
+            // Use alias if available, otherwise create one
+            let bot_alias = aliases.get(&m.bot_id).cloned()
+                .or_else(|| state.db.get_or_create_bot_alias(&channel_id, &m.bot_id).ok())
+                .unwrap_or_else(|| m.bot_id.clone());
+
             views.push(ChannelMemberView {
                 agent_id: m.agent_id,
-                bot_id: m.bot_id,
+                bot_id: bot_alias, // Use alias instead of real botId
                 name: bot.name,
                 avatar: bot.avatar,
                 state: m.state,
@@ -703,6 +738,12 @@ async fn channel_events_sse(
                 ChannelEvent::LayoutUpdate { .. } => "layout_update",
                 ChannelEvent::ChannelUpdate { .. } => "channel_update",
                 ChannelEvent::Action { .. } => "action",
+                ChannelEvent::GameCreated { .. } => "game_created",
+                ChannelEvent::GamePlayerJoined { .. } => "game_player_joined",
+                ChannelEvent::GameStarted { .. } => "game_started",
+                ChannelEvent::GameUpdate { .. } => "game_update",
+                ChannelEvent::GameFinished { .. } => "game_finished",
+                ChannelEvent::GameCancelled { .. } => "game_cancelled",
                 ChannelEvent::Keepalive => "keepalive",
             };
             Ok::<_, Infallible>(Event::default().event(event_type).data(json))

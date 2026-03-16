@@ -939,4 +939,426 @@ impl Database {
 
         Ok(changed as u64)
     }
+
+    // =========================================================================
+    // Game Methods
+    // =========================================================================
+
+    pub fn create_game(&self, game: &Game) -> Result<(), DbError> {
+        let conn = self.conn.lock()?;
+        let config_str = serde_json::to_string(&game.config).unwrap_or_else(|_| "{}".to_string());
+        let state_str = serde_json::to_string(&game.state).unwrap_or_else(|_| "{}".to_string());
+        conn.execute(
+            "INSERT INTO games (game_id, channel_id, game_type, status, config, state, turn_id, current_phase, phase_started_at, winner_bot_id, created_by, created_at, finished_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                game.game_id, game.channel_id, game.game_type.to_string(), game.status.to_string(),
+                config_str, state_str, game.turn_id, game.current_phase, game.phase_started_at,
+                game.winner_bot_id, game.created_by, game.created_at, game.finished_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_game(&self, game_id: &str) -> Result<Option<Game>, DbError> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT game_id, channel_id, game_type, status, config, state, turn_id, current_phase, phase_started_at, winner_bot_id, created_by, created_at, finished_at
+             FROM games WHERE game_id = ?1"
+        )?;
+        let mut rows = stmt.query(params![game_id])?;
+        match rows.next()? {
+            Some(row) => {
+                let game_type_str: String = row.get(2)?;
+                let status_str: String = row.get(3)?;
+                let config_str: String = row.get(4)?;
+                let state_str: String = row.get(5)?;
+                Ok(Some(Game {
+                    game_id: row.get(0)?,
+                    channel_id: row.get(1)?,
+                    game_type: GameType::from_str(&game_type_str).unwrap_or(GameType::Rps),
+                    status: GameStatus::from_str(&status_str),
+                    config: serde_json::from_str(&config_str).unwrap_or(serde_json::json!({})),
+                    state: serde_json::from_str(&state_str).unwrap_or(serde_json::json!({})),
+                    turn_id: row.get(6)?,
+                    current_phase: row.get(7)?,
+                    phase_started_at: row.get(8)?,
+                    winner_bot_id: row.get(9)?,
+                    created_by: row.get(10)?,
+                    created_at: row.get(11)?,
+                    finished_at: row.get(12)?,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn update_game(&self, game: &Game) -> Result<bool, DbError> {
+        let conn = self.conn.lock()?;
+        let config_str = serde_json::to_string(&game.config).unwrap_or_else(|_| "{}".to_string());
+        let state_str = serde_json::to_string(&game.state).unwrap_or_else(|_| "{}".to_string());
+        let changed = conn.execute(
+            "UPDATE games SET status = ?1, config = ?2, state = ?3, turn_id = ?4, current_phase = ?5, phase_started_at = ?6, winner_bot_id = ?7, finished_at = ?8
+             WHERE game_id = ?9",
+            params![
+                game.status.to_string(), config_str, state_str, game.turn_id,
+                game.current_phase, game.phase_started_at, game.winner_bot_id, game.finished_at, game.game_id
+            ],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn get_active_game_in_channel(&self, channel_id: &str) -> Result<Option<Game>, DbError> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT game_id, channel_id, game_type, status, config, state, turn_id, current_phase, phase_started_at, winner_bot_id, created_by, created_at, finished_at
+             FROM games WHERE channel_id = ?1 AND status IN ('waiting', 'playing') ORDER BY created_at DESC LIMIT 1"
+        )?;
+        let mut rows = stmt.query(params![channel_id])?;
+        match rows.next()? {
+            Some(row) => {
+                let game_type_str: String = row.get(2)?;
+                let status_str: String = row.get(3)?;
+                let config_str: String = row.get(4)?;
+                let state_str: String = row.get(5)?;
+                Ok(Some(Game {
+                    game_id: row.get(0)?,
+                    channel_id: row.get(1)?,
+                    game_type: GameType::from_str(&game_type_str).unwrap_or(GameType::Rps),
+                    status: GameStatus::from_str(&status_str),
+                    config: serde_json::from_str(&config_str).unwrap_or(serde_json::json!({})),
+                    state: serde_json::from_str(&state_str).unwrap_or(serde_json::json!({})),
+                    turn_id: row.get(6)?,
+                    current_phase: row.get(7)?,
+                    phase_started_at: row.get(8)?,
+                    winner_bot_id: row.get(9)?,
+                    created_by: row.get(10)?,
+                    created_at: row.get(11)?,
+                    finished_at: row.get(12)?,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn list_channel_games(&self, channel_id: &str, limit: u32) -> Result<Vec<Game>, DbError> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT game_id, channel_id, game_type, status, config, state, turn_id, current_phase, phase_started_at, winner_bot_id, created_by, created_at, finished_at
+             FROM games WHERE channel_id = ?1 ORDER BY created_at DESC LIMIT ?2"
+        )?;
+        let rows = stmt.query_map(params![channel_id, limit], |row| {
+            let game_type_str: String = row.get(2)?;
+            let status_str: String = row.get(3)?;
+            let config_str: String = row.get(4)?;
+            let state_str: String = row.get(5)?;
+            Ok(Game {
+                game_id: row.get(0)?,
+                channel_id: row.get(1)?,
+                game_type: GameType::from_str(&game_type_str).unwrap_or(GameType::Rps),
+                status: GameStatus::from_str(&status_str),
+                config: serde_json::from_str(&config_str).unwrap_or(serde_json::json!({})),
+                state: serde_json::from_str(&state_str).unwrap_or(serde_json::json!({})),
+                turn_id: row.get(6)?,
+                current_phase: row.get(7)?,
+                phase_started_at: row.get(8)?,
+                winner_bot_id: row.get(9)?,
+                created_by: row.get(10)?,
+                created_at: row.get(11)?,
+                finished_at: row.get(12)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    /// Get all games currently in 'playing' status (for timeout checking)
+    pub fn get_playing_games(&self) -> Result<Vec<Game>, DbError> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT game_id, channel_id, game_type, status, config, state, turn_id, current_phase, phase_started_at, winner_bot_id, created_by, created_at, finished_at
+             FROM games WHERE status = 'playing'"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let game_type_str: String = row.get(2)?;
+            let status_str: String = row.get(3)?;
+            let config_str: String = row.get(4)?;
+            let state_str: String = row.get(5)?;
+            Ok(Game {
+                game_id: row.get(0)?,
+                channel_id: row.get(1)?,
+                game_type: GameType::from_str(&game_type_str).unwrap_or(GameType::Rps),
+                status: GameStatus::from_str(&status_str),
+                config: serde_json::from_str(&config_str).unwrap_or(serde_json::json!({})),
+                state: serde_json::from_str(&state_str).unwrap_or(serde_json::json!({})),
+                turn_id: row.get(6)?,
+                current_phase: row.get(7)?,
+                phase_started_at: row.get(8)?,
+                winner_bot_id: row.get(9)?,
+                created_by: row.get(10)?,
+                created_at: row.get(11)?,
+                finished_at: row.get(12)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    // --- Game Players ---
+
+    pub fn add_game_player(&self, player: &GamePlayer) -> Result<(), DbError> {
+        let conn = self.conn.lock()?;
+        let private_str = serde_json::to_string(&player.private_state).unwrap_or_else(|_| "{}".to_string());
+        let public_str = serde_json::to_string(&player.public_state).unwrap_or_else(|_| "{}".to_string());
+        conn.execute(
+            "INSERT INTO game_players (game_id, bot_id, seat_order, role, private_state, public_state, score, is_alive, joined_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                player.game_id, player.bot_id, player.seat_order, player.role,
+                private_str, public_str, player.score, player.is_alive, player.joined_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_game_players(&self, game_id: &str) -> Result<Vec<GamePlayer>, DbError> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT game_id, bot_id, seat_order, role, private_state, public_state, score, is_alive, joined_at
+             FROM game_players WHERE game_id = ?1 ORDER BY seat_order"
+        )?;
+        let rows = stmt.query_map(params![game_id], |row| {
+            let private_str: String = row.get(4)?;
+            let public_str: String = row.get(5)?;
+            Ok(GamePlayer {
+                game_id: row.get(0)?,
+                bot_id: row.get(1)?,
+                seat_order: row.get(2)?,
+                role: row.get(3)?,
+                private_state: serde_json::from_str(&private_str).unwrap_or(serde_json::json!({})),
+                public_state: serde_json::from_str(&public_str).unwrap_or(serde_json::json!({})),
+                score: row.get(6)?,
+                is_alive: row.get(7)?,
+                joined_at: row.get(8)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    pub fn get_game_player(&self, game_id: &str, bot_id: &str) -> Result<Option<GamePlayer>, DbError> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT game_id, bot_id, seat_order, role, private_state, public_state, score, is_alive, joined_at
+             FROM game_players WHERE game_id = ?1 AND bot_id = ?2"
+        )?;
+        let mut rows = stmt.query(params![game_id, bot_id])?;
+        match rows.next()? {
+            Some(row) => {
+                let private_str: String = row.get(4)?;
+                let public_str: String = row.get(5)?;
+                Ok(Some(GamePlayer {
+                    game_id: row.get(0)?,
+                    bot_id: row.get(1)?,
+                    seat_order: row.get(2)?,
+                    role: row.get(3)?,
+                    private_state: serde_json::from_str(&private_str).unwrap_or(serde_json::json!({})),
+                    public_state: serde_json::from_str(&public_str).unwrap_or(serde_json::json!({})),
+                    score: row.get(6)?,
+                    is_alive: row.get(7)?,
+                    joined_at: row.get(8)?,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn update_game_player(&self, player: &GamePlayer) -> Result<bool, DbError> {
+        let conn = self.conn.lock()?;
+        let private_str = serde_json::to_string(&player.private_state).unwrap_or_else(|_| "{}".to_string());
+        let public_str = serde_json::to_string(&player.public_state).unwrap_or_else(|_| "{}".to_string());
+        let changed = conn.execute(
+            "UPDATE game_players SET role = ?1, private_state = ?2, public_state = ?3, score = ?4, is_alive = ?5
+             WHERE game_id = ?6 AND bot_id = ?7",
+            params![player.role, private_str, public_str, player.score, player.is_alive, player.game_id, player.bot_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn count_game_players(&self, game_id: &str) -> Result<u32, DbError> {
+        let conn = self.conn.lock()?;
+        let count: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM game_players WHERE game_id = ?1",
+            params![game_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    // --- Game Actions ---
+
+    pub fn log_game_action(&self, action: &GameAction) -> Result<i64, DbError> {
+        let conn = self.conn.lock()?;
+        let data_str = serde_json::to_string(&action.action_data).unwrap_or_else(|_| "{}".to_string());
+        let result_str = serde_json::to_string(&action.result).unwrap_or_else(|_| "{}".to_string());
+        conn.execute(
+            "INSERT INTO game_actions (game_id, turn_id, bot_id, action_type, action_data, result, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                action.game_id, action.turn_id, action.bot_id, action.action_type,
+                data_str, result_str, action.created_at
+            ],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn get_game_actions(&self, game_id: &str) -> Result<Vec<GameAction>, DbError> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT action_id, game_id, turn_id, bot_id, action_type, action_data, result, created_at
+             FROM game_actions WHERE game_id = ?1 ORDER BY action_id"
+        )?;
+        let rows = stmt.query_map(params![game_id], |row| {
+            let data_str: String = row.get(5)?;
+            let result_str: String = row.get(6)?;
+            Ok(GameAction {
+                action_id: row.get(0)?,
+                game_id: row.get(1)?,
+                turn_id: row.get(2)?,
+                bot_id: row.get(3)?,
+                action_type: row.get(4)?,
+                action_data: serde_json::from_str(&data_str).unwrap_or(serde_json::json!({})),
+                result: serde_json::from_str(&result_str).unwrap_or(serde_json::json!({})),
+                created_at: row.get(7)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    // =========================================================================
+    // Bot Alias Methods (Privacy Protection)
+    // =========================================================================
+
+    /// Generate a random alias like "player_a7x9k2"
+    fn generate_alias() -> String {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let random_part: u64 = (timestamp as u64) ^ (std::process::id() as u64 * 0x517cc1b727220a95);
+        format!("player_{:x}", random_part & 0xFFFFFFFFFF)
+    }
+
+    /// Get or create an alias for a bot in a channel
+    pub fn get_or_create_bot_alias(&self, channel_id: &str, bot_id: &str) -> Result<String, DbError> {
+        let conn = self.conn.lock()?;
+
+        // Try to get existing alias
+        let existing: Option<String> = conn.query_row(
+            "SELECT alias FROM channel_bot_aliases WHERE channel_id = ?1 AND bot_id = ?2",
+            params![channel_id, bot_id],
+            |row| row.get(0),
+        ).ok();
+
+        if let Some(alias) = existing {
+            return Ok(alias);
+        }
+
+        // Generate new alias, retry if collision
+        let mut attempts = 0;
+        loop {
+            let alias = Self::generate_alias();
+            let now = chrono::Utc::now().to_rfc3339();
+
+            match conn.execute(
+                "INSERT INTO channel_bot_aliases (channel_id, bot_id, alias, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![channel_id, bot_id, alias, now],
+            ) {
+                Ok(_) => return Ok(alias),
+                Err(rusqlite::Error::SqliteFailure(err, _)) if err.code == rusqlite::ErrorCode::ConstraintViolation => {
+                    attempts += 1;
+                    if attempts > 5 {
+                        return Err(DbError::Sqlite(rusqlite::Error::SqliteFailure(err, Some("Too many alias collisions".to_string()))));
+                    }
+                    continue;
+                }
+                Err(e) => return Err(DbError::Sqlite(e)),
+            }
+        }
+    }
+
+    /// Get alias for a bot in a channel (returns None if not found)
+    pub fn get_bot_alias(&self, channel_id: &str, bot_id: &str) -> Result<Option<String>, DbError> {
+        let conn = self.conn.lock()?;
+        let alias: Option<String> = conn.query_row(
+            "SELECT alias FROM channel_bot_aliases WHERE channel_id = ?1 AND bot_id = ?2",
+            params![channel_id, bot_id],
+            |row| row.get(0),
+        ).ok();
+        Ok(alias)
+    }
+
+    /// Resolve alias back to real bot_id (within a channel)
+    pub fn resolve_alias_to_bot_id(&self, channel_id: &str, alias: &str) -> Result<Option<String>, DbError> {
+        let conn = self.conn.lock()?;
+        let bot_id: Option<String> = conn.query_row(
+            "SELECT bot_id FROM channel_bot_aliases WHERE channel_id = ?1 AND alias = ?2",
+            params![channel_id, alias],
+            |row| row.get(0),
+        ).ok();
+        Ok(bot_id)
+    }
+
+    /// Get all aliases for a channel (for bulk conversion)
+    pub fn get_channel_aliases(&self, channel_id: &str) -> Result<std::collections::HashMap<String, String>, DbError> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT bot_id, alias FROM channel_bot_aliases WHERE channel_id = ?1"
+        )?;
+        let rows = stmt.query_map(params![channel_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut map = std::collections::HashMap::new();
+        for row in rows {
+            let (bot_id, alias) = row?;
+            map.insert(bot_id, alias);
+        }
+        Ok(map)
+    }
+
+    /// Remove alias when bot leaves channel
+    pub fn remove_bot_alias(&self, channel_id: &str, bot_id: &str) -> Result<bool, DbError> {
+        let conn = self.conn.lock()?;
+        let changed = conn.execute(
+            "DELETE FROM channel_bot_aliases WHERE channel_id = ?1 AND bot_id = ?2",
+            params![channel_id, bot_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    // =========================================================================
+    // Leaderboard Methods
+    // =========================================================================
+
+    /// Get win counts by bot_id and game_type for a channel (top 3 per game type)
+    pub fn get_channel_leaderboard(&self, channel_id: &str) -> Result<Vec<(String, String, u32)>, DbError> {
+        let conn = self.conn.lock()?;
+        // Query: count wins per bot per game_type, ordered by wins desc
+        // Returns: (game_type, bot_id, win_count)
+        let mut stmt = conn.prepare(
+            "SELECT game_type, winner_bot_id, COUNT(*) as wins
+             FROM games
+             WHERE channel_id = ?1 AND status = 'finished' AND winner_bot_id IS NOT NULL
+             GROUP BY game_type, winner_bot_id
+             ORDER BY game_type, wins DESC"
+        )?;
+
+        let rows = stmt.query_map(params![channel_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, u32>(2)?,
+            ))
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
 }

@@ -8,6 +8,9 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("002_channels", include_str!("../../../migrations/002_channels.sql")),
     ("003_thumbnails", include_str!("../../../migrations/003_thumbnails.sql")),
     ("004_github_oauth", include_str!("../../../migrations/004_github_oauth.sql")),
+    ("005_games", include_str!("../../../migrations/005_games.sql")),
+    ("006_game_timeout", include_str!("../../../migrations/006_game_timeout.sql")),
+    ("007_bot_aliases", include_str!("../../../migrations/007_bot_aliases.sql")),
 ];
 
 /// Error type for migration operations
