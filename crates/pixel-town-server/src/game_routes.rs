@@ -46,6 +46,25 @@ pub fn game_routes() -> Router<Arc<AppState>> {
 }
 
 // =============================================================================
+// Helper Functions
+// =============================================================================
+
+/// Resolve bot_id or alias to real bot_id
+/// If the input starts with "player_", it's treated as an alias and resolved.
+/// Otherwise, it's returned as-is (assumed to be a real bot_id).
+fn resolve_bot_id(state: &Arc<AppState>, channel_id: &str, bot_id_or_alias: &str) -> Result<String, (StatusCode, String)> {
+    if bot_id_or_alias.starts_with("player_") {
+        // It's an alias, resolve to real bot_id
+        state.db.resolve_alias_to_bot_id(channel_id, bot_id_or_alias)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Alias '{}' not found in this channel", bot_id_or_alias)))
+    } else {
+        // It's already a real bot_id
+        Ok(bot_id_or_alias.to_string())
+    }
+}
+
+// =============================================================================
 // Request/Response Types
 // =============================================================================
 
@@ -134,8 +153,12 @@ async fn create_game(
     let game_logic = registry.get(game_type)
         .ok_or_else(|| err(StatusCode::BAD_REQUEST, "Game type not supported"))?;
 
+    // Resolve alias to real bot_id if needed
+    let real_bot_id = resolve_bot_id(&state, &body.channel_id, &body.bot_id)
+        .map_err(|(code, msg)| err(code, msg))?;
+
     // Validate bot exists and is in the channel
-    let bot = state.db.get_bot(&body.bot_id)
+    let bot = state.db.get_bot(&real_bot_id)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "Bot not found"))?;
 
@@ -169,7 +192,7 @@ async fn create_game(
         current_phase: "waiting".to_string(),
         phase_started_at: now.clone(),
         winner_bot_id: None,
-        created_by: body.bot_id.clone(),
+        created_by: real_bot_id.clone(),
         created_at: now.clone(),
         finished_at: None,
     };
@@ -180,7 +203,7 @@ async fn create_game(
     // Add creator as first player
     let player = GamePlayer {
         game_id: game_id.clone(),
-        bot_id: body.bot_id.clone(),
+        bot_id: real_bot_id.clone(),
         seat_order: 0,
         role: String::new(),
         private_state: serde_json::json!({}),
@@ -194,7 +217,7 @@ async fn create_game(
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Get alias for event (privacy protection)
-    let bot_alias = state.db.get_or_create_bot_alias(&body.channel_id, &body.bot_id)
+    let bot_alias = state.db.get_or_create_bot_alias(&body.channel_id, &real_bot_id)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Emit GameCreated event (with alias, not real botId)
@@ -205,7 +228,7 @@ async fn create_game(
         created_by_name: bot.name.clone(),
     }).await;
 
-    tracing::info!("Game created: {} ({}) by {}", game_id, game_type, body.bot_id);
+    tracing::info!("Game created: {} ({}) by {}", game_id, game_type, real_bot_id);
 
     Ok(Json(game))
 }
@@ -237,8 +260,12 @@ async fn join_game(
         return Err(err(StatusCode::BAD_REQUEST, "Game is not accepting players"));
     }
 
+    // Resolve alias to real bot_id if needed
+    let real_bot_id = resolve_bot_id(&state, &game.channel_id, &body.bot_id)
+        .map_err(|(code, msg)| err(code, msg))?;
+
     // Validate bot exists and is in the channel
-    let bot = state.db.get_bot(&body.bot_id)
+    let bot = state.db.get_bot(&real_bot_id)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "Bot not found"))?;
 
@@ -247,7 +274,7 @@ async fn join_game(
     }
 
     // Check if already joined
-    if state.db.get_game_player(&game_id, &body.bot_id)
+    if state.db.get_game_player(&game_id, &real_bot_id)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .is_some() {
         return Err(err(StatusCode::CONFLICT, "Already joined this game"));
@@ -270,7 +297,7 @@ async fn join_game(
     let now = chrono::Utc::now().to_rfc3339();
     let player = GamePlayer {
         game_id: game_id.clone(),
-        bot_id: body.bot_id.clone(),
+        bot_id: real_bot_id.clone(),
         seat_order: current_count,
         role: String::new(),
         private_state: serde_json::json!({}),
@@ -286,7 +313,7 @@ async fn join_game(
     let new_count = current_count + 1;
 
     // Get alias for event (privacy protection)
-    let bot_alias = state.db.get_or_create_bot_alias(&game.channel_id, &body.bot_id)
+    let bot_alias = state.db.get_or_create_bot_alias(&game.channel_id, &real_bot_id)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Emit GamePlayerJoined event (with alias, not real botId)
@@ -297,7 +324,7 @@ async fn join_game(
         player_count: new_count,
     }).await;
 
-    tracing::info!("Bot {} joined game {}", body.bot_id, game_id);
+    tracing::info!("Bot {} joined game {}", real_bot_id, game_id);
 
     Ok(Json(serde_json::json!({ "ok": true, "playerCount": new_count })))
 }
@@ -312,8 +339,12 @@ async fn start_game(
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "Game not found"))?;
 
+    // Resolve alias to real bot_id if needed
+    let real_bot_id = resolve_bot_id(&state, &game.channel_id, &body.bot_id)
+        .map_err(|(code, msg)| err(code, msg))?;
+
     // Only creator can start
-    if game.created_by != body.bot_id {
+    if game.created_by != real_bot_id {
         return Err(err(StatusCode::FORBIDDEN, "Only game creator can start"));
     }
 
@@ -373,8 +404,12 @@ async fn cancel_game(
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "Game not found"))?;
 
+    // Resolve alias to real bot_id if needed
+    let real_bot_id = resolve_bot_id(&state, &game.channel_id, &body.bot_id)
+        .map_err(|(code, msg)| err(code, msg))?;
+
     // Only creator can cancel
-    if game.created_by != body.bot_id {
+    if game.created_by != real_bot_id {
         return Err(err(StatusCode::FORBIDDEN, "Only game creator can cancel"));
     }
 
@@ -413,8 +448,12 @@ async fn sync_game(
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "Game not found"))?;
 
+    // Resolve alias to real bot_id if needed
+    let real_bot_id = resolve_bot_id(&state, &game.channel_id, &query.bot_id)
+        .map_err(|(code, msg)| err(code, msg))?;
+
     // Validate bot is a participant
-    let my_player = state.db.get_game_player(&game_id, &query.bot_id)
+    let my_player = state.db.get_game_player(&game_id, &real_bot_id)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or_else(|| err(StatusCode::FORBIDDEN, "Not a participant in this game"))?;
 
@@ -432,7 +471,7 @@ async fn sync_game(
         .ok_or_else(|| err(StatusCode::INTERNAL_SERVER_ERROR, "Game type not found"))?;
 
     // Filter state for this player (information asymmetry)
-    let public_state = game_logic.filter_state_for_player(&game, &players, &query.bot_id);
+    let public_state = game_logic.filter_state_for_player(&game, &players, &real_bot_id);
 
     // Get available actions
     let available_actions = game_logic.available_actions(&game, &my_player);
@@ -560,8 +599,12 @@ async fn operate(
         )));
     }
 
+    // Resolve alias to real bot_id if needed
+    let real_bot_id = resolve_bot_id(&state, &game.channel_id, &body.bot_id)
+        .map_err(|(code, msg)| err(code, msg))?;
+
     // Validate bot is a participant
-    let my_player = state.db.get_game_player(&game_id, &body.bot_id)
+    let my_player = state.db.get_game_player(&game_id, &real_bot_id)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or_else(|| err(StatusCode::FORBIDDEN, "Not a participant in this game"))?;
 
@@ -587,7 +630,7 @@ async fn operate(
     let result = game_logic.execute_action(
         &mut game,
         &mut players,
-        &body.bot_id,
+        &real_bot_id,
         &body.action,
         &body.data,
     ).map_err(|e| err(StatusCode::BAD_REQUEST, e))?;
@@ -597,7 +640,7 @@ async fn operate(
         action_id: 0,
         game_id: game_id.clone(),
         turn_id: body.turn_id,
-        bot_id: body.bot_id.clone(),
+        bot_id: real_bot_id.clone(),
         action_type: body.action.clone(),
         action_data: body.data.clone(),
         result: result.result_data.clone(),
